@@ -241,7 +241,8 @@ def _inner_generation(original_imgs, perturbation_targets, all_model_original_pr
             type, model_folder, model_checkpoint, temperature, temp = model_descriptions[model_idx]
             print(f'{model_folder} {model_checkpoint} - bs {model_bs}')
 
-            dir = f'{eval_dir}/{model_folder}_{model_checkpoint}/VisualCounterfactuals/'
+            # dir = f'{eval_dir}/{model_folder}_{model_checkpoint}/VisualCounterfactuals/'
+            dir = f'{eval_dir}/{"-".join(pathlib.Path(model_folder).parts)}_{model_checkpoint}'
             pathlib.Path(dir).mkdir(parents=True, exist_ok=True)
 
             model = load_model(type, model_folder, model_checkpoint, temperature, device, load_temp=temp, dataset=dataset)
@@ -292,6 +293,7 @@ def _inner_generation(original_imgs, perturbation_targets, all_model_original_pr
                             batch_adv_samples_i[valid_batch_targets] = batch_valid_adv_samples_i
                             batch_model_out_i = model(batch_adv_samples_i)
                             batch_probs_i = torch.softmax(batch_model_out_i, dim=1)
+                            print(batch_adv_samples_i.min().item(), batch_adv_samples_i.max().item())
 
                             out_imgs[batch_start_idx:batch_end_idx, target_idx, radius_idx, :] = batch_adv_samples_i.cpu().detach()
                             out_probabilities[batch_start_idx:batch_end_idx, target_idx, radius_idx, :] = batch_probs_i.cpu().detach()
@@ -319,7 +321,7 @@ def _inner_generation(original_imgs, perturbation_targets, all_model_original_pr
 #looks through dataloader to find examples that are misclassified  by all models,
 #then for each create a counterfactual in the correct and wrong class
 def visual_counterfactuals(model_descriptions, radii, dataloader, bs, num_examples, class_labels, device, eval_dir,
-                           dataset, norm='L2', steps=500, stepsize=0.1, attack_type='apgd',
+                           dataset, norm='L2', steps=500, stepsize=0.1, attack_type='pgd',
                            device_ids=None):
     original_imgs, perturbation_targets, all_models_original_probabilities = \
         _find_wrong_examples(model_descriptions, dataloader, num_examples, class_labels, device, dataset,
@@ -332,7 +334,7 @@ def visual_counterfactuals(model_descriptions, radii, dataloader, bs, num_exampl
 #create counterfactuals for all models on all datapoints [N, 3, IMG_W, IMG_H] in the given classes
 #target list should be a nested list where
 def targeted_translations(model_descriptions, radii, imgs, target_list, bs, class_labels, device, eval_dir, dataset,
-                          norm='L2', steps=500, stepsize=0.1, attack_type='apgd', show_distanes=False, filenames=None,
+                          norm='L2', steps=500, stepsize=0.1, attack_type='pgd', show_distanes=False, filenames=None,
                           device_ids=None):
     perturbation_targets, all_models_original_probabilities = \
         _prepare_targeted_translations(model_descriptions, imgs, target_list,

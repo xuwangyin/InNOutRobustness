@@ -16,18 +16,36 @@ from utils.load_trained_model import load_model
 import utils.datasets as dl
 
 model_descriptions = [
-    ('WideResNet34x10', 'cifar10_500k_apgd_asam', 'best_avg', None, False),
-    ('WideResNet34x10', 'cifar10_pgd', 'best_avg', None, False),
-    ('WideResNet34x10', 'cifar10_apgd', 'best_avg', None, False),
-    ('WideResNet34x10', 'cifar10_500k_pgd', 'best_avg', None, False),
-    ('WideResNet34x10', 'cifar10_500k_apgd', 'best_avg', None, False),
+    # ('WideResNet34x10', '_temp_Adversarial Training_25-04-2025_02:48:14', 'best_avg', None, False),
+    # ('WideResNet34x10', 'Adversarial Training_25-04-2025_21:24:11', '225', None, False),
+    ('WideResNet34x10', 'Adversarial Training_25-04-2025_21:24:11/checkpoints/', 'model_bestfid', None, False),
+    ('WideResNet34x10', 'Adversarial Training_25-04-2025_21:24:11/checkpoints/', 'model_bestacc', None, False),
+    # ('WideResNet34x10', 'cifar10_500k_apgd_asam', 'best_avg', None, False),
+    # ('WideResNet34x10', 'cifar10_pgd', 'best_avg', None, False),
+    # ('WideResNet34x10', 'cifar10_apgd', 'best_avg', None, False),
+    # ('WideResNet34x10', 'cifar10_500k_pgd', 'best_avg', None, False),
+    # ('WideResNet34x10', 'cifar10_500k_apgd', 'best_avg', None, False),
 ]
 
 
 parser = argparse.ArgumentParser(description='Parse arguments.', prefix_chars='-')
 
-parser.add_argument('--gpu','--list', nargs='+', default=[0],
+parser.add_argument('--gpu','--list', nargs='+', default=list(range(torch.cuda.device_count())),
                     help='GPU indices, if more than 1 parallel modules will be called')
+parser.add_argument('--model_type', type=str, default='WideResNet34x10',
+                    help='Model architecture type (e.g., WideResNet34x10)')
+parser.add_argument('--checkpoint', type=str, default=None,
+                    help='Full path to checkpoint (e.g., Adversarial Training_25-04-2025_21:24:11/checkpoints/model_bestfid)')
+parser.add_argument('--temperature', type=float, default=None,
+                    help='Temperature for softmax (default: None)')
+parser.add_argument('--load_temp', action='store_true', default=False,
+                    help='Load temperature from checkpoint if available')
+parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'cifar100', 'restrictedimagenet'],
+                    help='Dataset to use for testing (cifar10, cifar100, or restrictedimagenet)')
+parser.add_argument('--distance_type', type=str, default='L2', choices=['L2', 'Linf'],
+                    help='Distance type for adversarial attacks (L2 or Linf)')
+parser.add_argument('--eps', type=float, default=3.5,
+                    help='Epsilon value for adversarial attacks (default: 0.5 for CIFAR10/100, 3.5 for RestrictedImageNet)')
 
 hps = parser.parse_args()
 
@@ -44,15 +62,42 @@ else:
     device = torch.device('cuda:' + str(min(device_ids)))
     num_devices = len(device_ids)
 
-L2 = True
-LINF = False
-
 ROBUSTNESS_DATAPOINTS = 10_000
-dataset = 'cifar10'
+dataset = hps.dataset
+
+if hps.dataset == 'restrictedimagenet':
+    original_parsed_model_type = hps.model_type # Store to see if it was different
+    if original_parsed_model_type != 'resnet50_timm':
+        print(f"INFO: Dataset is 'restrictedimagenet'. Global model_type is being set to 'resnet50_timm' "
+              f"(original parsed value was '{original_parsed_model_type}').")
+    hps.model_type = 'resnet50_timm'    
+
+# Set default epsilon based on dataset if not provided
+if hps.eps is None:
+    if dataset in ['cifar10', 'cifar100']:
+        hps.eps = 0.5
+    elif dataset == 'restrictedimagenet':
+        hps.eps = 3.5
+    print(f"Using default epsilon value of {hps.eps} for {dataset}")
 
 bs = 500 * num_devices
 
-print(f'Testing on {ROBUSTNESS_DATAPOINTS} points')
+print(f'Testing on {ROBUSTNESS_DATAPOINTS} points from {dataset.upper()} dataset')
+
+# Override model descriptions if command line arguments are provided
+if hps.checkpoint is not None:
+    # Extract folder and checkpoint name from the full path
+    import os
+    path_parts = hps.checkpoint.split('/')
+    checkpoint_name = path_parts[-1]
+    folder = '/'.join(path_parts[:-1])
+    if folder:
+        folder += '/'  # Add trailing slash if folder is not empty
+    
+    model_descriptions = [
+        (hps.model_type, folder, checkpoint_name, hps.temperature, hps.load_temp),
+    ]
+    print(model_descriptions)
 
 for model_idx, (type, folder, checkpoint, temperature, temp) in enumerate(model_descriptions):
     model = load_model(type, folder, checkpoint,
@@ -65,10 +110,15 @@ for model_idx, (type, folder, checkpoint, temperature, temp) in enumerate(model_
     model.eval()
     print(f'\n\n{folder} {checkpoint}\n ')
 
+    # TODO using augm_type='none' give higher numbers
+    restrictedimagenet_augm_type = 'none'
+
     if dataset == 'cifar10':
         dataloader = dl.get_CIFAR10(False, batch_size=bs, augm_type='none')
     elif dataset == 'cifar100':
         dataloader = dl.get_CIFAR100(False, batch_size=bs, augm_type='none')
+    elif dataset == 'restrictedimagenet':
+        dataloader = dl.get_restrictedImageNet(train=False, augm_type=restrictedimagenet_augm_type, batch_size=bs, balanced=True)
     else:
         raise NotImplementedError()
 
@@ -87,23 +137,20 @@ for model_idx, (type, folder, checkpoint, temperature, temp) in enumerate(model_
         dataloader = dl.get_CIFAR10(False, batch_size=ROBUSTNESS_DATAPOINTS, augm_type='none')
     elif dataset == 'cifar100':
         dataloader = dl.get_CIFAR100(False, batch_size=ROBUSTNESS_DATAPOINTS, augm_type='none')
+    elif dataset == 'restrictedimagenet':
+        dataloader = dl.get_restrictedImageNet(train=False, augm_type=restrictedimagenet_augm_type, batch_size=ROBUSTNESS_DATAPOINTS, balanced=True)
     else:
         raise NotImplementedError()
     
     data_iterator = iter(dataloader)
     ref_data, target = next(data_iterator)
 
-    if L2:
-        print('Eps: 0.5')
-
-        attack = AutoAttack(model, device=device, norm='L2', eps=0.5, verbose=True)
+    print(f'Distance type: {hps.distance_type}, Eps: {hps.eps}')
+    
+    if hps.distance_type == 'L2':
+        attack = AutoAttack(model, device=device, norm='L2', eps=hps.eps, verbose=True)
         attack.run_standard_evaluation(ref_data, target, bs=bs)
-
-        # print('Eps: 1.0')
-        # attack = AutoAttack(model, device=device, norm='L2', eps=1.0, attacks_to_run=attacks_to_run,verbose=True)
-        # attack.run_standard_evaluation(ref_data, target, bs=bs)
-    if LINF:
-        print('Eps: 8/255')
-        attack = AutoAttack(model,  device=device, norm='Linf', eps=8./255.,verbose=True)
+    elif hps.distance_type == 'Linf':
+        attack = AutoAttack(model, device=device, norm='Linf', eps=hps.eps, verbose=True)
         attack.run_standard_evaluation(ref_data, target, bs=bs)
 

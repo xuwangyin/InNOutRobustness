@@ -1,4 +1,5 @@
 from timm.models.factory import create_model
+from resnet import resnet50, wide_resnet50_2
 
 def build_model(model_name, num_classes, **kwargs):
     model_name = model_name.lower()
@@ -8,7 +9,25 @@ def build_model(model_name, num_classes, **kwargs):
         config = dict(name=model_name, **kwargs)
     elif model_name == 'resnet50':
         model_name = 'ResNet50'
+        print(kwargs)
+        model = resnet50(num_classes=num_classes)
+        # model = create_model('resnet50', num_classes=num_classes, **kwargs)
+        config = dict(name=model_name, **kwargs)
+    elif model_name == 'resnet50_timm':
+        model_name = 'ResNet50_timm'
+        print(kwargs)
+        print('using timm')
         model = create_model('resnet50', num_classes=num_classes, **kwargs)
+        config = dict(name=model_name, **kwargs)
+    elif model_name == 'wide_resnet50_2':
+        model_name = 'WideResNet_50_2'
+        print(kwargs)
+        model = wide_resnet50_2(num_classes=num_classes)
+        config = dict(name=model_name, **kwargs)
+    elif model_name == 'wide_resnet50_2_timm':
+        print('using timm')
+        model_name = 'WideResNet_50_2_timm'
+        model = create_model('wide_resnet50_2', num_classes=num_classes, **kwargs)
         config = dict(name=model_name, **kwargs)
     elif model_name == 'tresnetm':
         model_name = 'TResNet-M'
@@ -26,4 +45,4 @@ def build_model(model_name, num_classes, **kwargs):
         print(f'Net {model_name} not supported')
         raise NotImplemented()
 
-    return model, model_name, config
+    return model, model_name, config, 224

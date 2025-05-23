@@ -3,7 +3,7 @@ print()
 import os
 
 def get_base_data_dir():
-    path = '/scratch/datasets/'
+    path = './scratch/datasets/'
     return path
 
 def get_svhn_path():
@@ -56,13 +56,13 @@ def get_tiny_images_files(shuffled=True):
     if shuffled == True:
         raise NotImplementedError()
     else:
-        return os.path.join(get_base_data_dir(), '80M Tiny Images/tiny_images.bin')
+        return '/work1/sawmya/ttw/UAT/tinyimages/tiny_images.bin'
 
 def get_tiny_images_lmdb():
     raise NotImplementedError()
 
 def get_imagenet_path():
-    path = os.path.join(get_base_data_dir(), 'imagenet/')
+    path = "/work1/sawmya/ttw/UAT/ImageNet"
     return path
 
 def get_imagenet_o_path():

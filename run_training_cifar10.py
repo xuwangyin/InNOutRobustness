@@ -59,6 +59,10 @@ id_config = {}
 if hps.dataset == 'cifar10':
     train_loader = dl.get_CIFAR10(train=True, batch_size=hps.bs, augm_type=hps.augm, size=img_size,
                                   config_dict=id_config)
+elif hps.dataset == 'cifar100':
+    print('using cifar100 train loader')
+    train_loader = dl.get_CIFAR100(train=True, batch_size=hps.bs, augm_type=hps.augm, size=img_size,
+                                  config_dict=id_config)
 elif hps.dataset == 'semi-cifar10':
     train_loader = dl.get_CIFAR10_ti_500k(train=True, batch_size=hps.bs, augm_type=hps.augm, fraction=0.7,
                                           size=img_size,
@@ -81,7 +85,13 @@ if hps.train_type.lower() in ['ceda', 'acet', 'advacet', 'tradesacet', 'tradesce
 else:
     loader_config = {'ID config': id_config}
 
-test_loader = dl.get_CIFAR10(train=False, batch_size=hps.bs, augm_type='none', size=img_size)
+if hps.dataset == 'cifar10':
+    test_loader = dl.get_CIFAR10(train=False, batch_size=hps.bs, augm_type='none', size=img_size)
+elif hps.dataset == 'cifar100':
+    print('using cifar100 test loader')
+    test_loader = dl.get_CIFAR100(train=False, batch_size=hps.bs, augm_type='none', size=img_size)
+else:
+    assert False
 
 scheduler_config, optimizer_config = rh.create_optim_scheduler_swa_configs(hps)
 id_attack_config, od_attack_config = rh.create_attack_config(hps, 'cifar10')

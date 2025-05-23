@@ -9,7 +9,7 @@ CIFAR10_mean = (0.4913997551666284, 0.48215855929893703, 0.4465309133731618)
 
 DEFAULT_CIFAR10_PARAMETERS = {
     'interpolation': 'bilinear',
-    'mean': CIFAR10_mean,
+    'mean': (0, 0, 0),
     'crop_pct': 0.875
 }
 

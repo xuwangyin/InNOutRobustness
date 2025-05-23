@@ -100,10 +100,12 @@ def get_filename(folder, architecture_folder, checkpoint, load_temp):
         load_folder_name = f'{folder}'
 
     if not  checkpoint.isnumeric():
-        state_dict_file = f'{architecture_folder}/{load_folder_name}/{checkpoint}.pth'
+        state_dict_file = f'{load_folder_name}/{checkpoint}'
+        # state_dict_file = f'{architecture_folder}/{load_folder_name}/{checkpoint}.pth'
     else:
-        epoch = int(checkpoint)
-        state_dict_file = f'{architecture_folder}/{load_folder_name}/checkpoints/{epoch}.pth'
+        state_dict_file = f'{load_folder_name}/{checkpoint}'
+        # epoch = int(checkpoint)
+        # state_dict_file = f'{architecture_folder}/{load_folder_name}/checkpoints/{epoch}.pth'
     return state_dict_file
 
 
@@ -113,6 +115,12 @@ def load_cifar_family_model(type, folder, checkpoint, device, dataset_dir, num_c
     model, model_folder_post, _, img_size = build_model32(type, num_classes, model_params=model_params)
     state_dict_file = get_filename(folder, os.path.join(dataset_dir, model_folder_post), checkpoint, load_temp)
     state_dict = torch.load(state_dict_file, map_location=device)
+    is_data_parallel = any(k.startswith('module.') for k in state_dict)
+    
+    if is_data_parallel:
+        print(f"Detected DataParallel checkpoint for {folder}/{checkpoint}, adjusting keys...")
+        # Create new state dict without the 'module.' prefix
+        state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
     model.load_state_dict(state_dict)
     return model
 
@@ -124,7 +132,10 @@ def load_big_transfer_model(type, folder, checkpoint, device, dataset_dir, num_c
     return model
 
 def load_imagenet_family_model(type, folder, checkpoint, device, dataset_dir, num_classes, load_temp=False, model_params=None):
-    model, model_folder_post, _ = build_model224(type, num_classes, **model_params)
+    if model_params is None:
+        model, model_folder_post, _, img_size = build_model224(type, num_classes)
+    else:
+        model, model_folder_post, _, img_size= build_model224(type, num_classes, **model_params)
     state_dict_file = get_filename(folder, f'{dataset_dir}/{model_folder_post}', checkpoint, load_temp)
     state_dict = torch.load(state_dict_file, map_location=device)
     model.load_state_dict(state_dict)

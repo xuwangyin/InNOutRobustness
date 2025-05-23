@@ -50,6 +50,7 @@ class PGD(RestartAttack):
         velocity = torch.zeros_like(x)
 
         #initialize perturbation
+        # print("x_init, self.init_noise_generator", x_init, self.init_noise_generator)
         pert = initialize_perturbation(x, self.eps, self.norm, x_init, self.init_noise_generator)
 
         #trajectory container
@@ -95,5 +96,5 @@ class PGD(RestartAttack):
                 if self.save_trajectory:
                     trajectory[i + 1] = x + pert
 
-        p_data = x + pert
+        p_data = torch.clamp(x + pert, 0, 1)
         return p_data, l_f(p_data, self.model(p_data)), trajectory
