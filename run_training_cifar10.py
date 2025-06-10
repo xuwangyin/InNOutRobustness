@@ -21,6 +21,8 @@ parser.add_argument('--od_dataset', type=str, default='tinyImages',
                     help=('tinyImages or cifar100'))
 parser.add_argument('--exclude_cifar', dest='exclude_cifar', type=lambda x: bool(strtobool(x)),
                     default=True, help='whether to exclude cifar10 from tiny images')
+parser.add_argument('--use_zero_mean', dest='use_zero_mean', type=lambda x: bool(strtobool(x)),
+                    default=True, help='If True, use zero mean (0,0,0); if False, use CIFAR10 mean')
 
 rh.parser_add_commons(parser)
 rh.parser_add_adversarial_commons(parser)
@@ -55,18 +57,36 @@ msda_config = rh.create_msda_config(hps)
 #load dataset
 od_bs = int(hps.od_bs_factor * hps.bs)
 
+# Set augmentation parameters based on mean choice
+CIFAR10_mean = (0.4913997551666284, 0.48215855929893703, 0.4465309133731618)
+
+if hps.use_zero_mean:
+    custom_augm_parameters = {
+        'interpolation': 'bilinear',
+        'mean': (0, 0, 0),
+        'crop_pct': 0.875
+    }
+    print(f"Using zero mean augmentation parameters: {custom_augm_parameters}")
+else:
+    custom_augm_parameters = {
+        'interpolation': 'bilinear',
+        'mean': CIFAR10_mean,
+        'crop_pct': 0.875
+    }
+    print(f"Using CIFAR10 mean augmentation parameters: {custom_augm_parameters}")
+
 id_config = {}
 if hps.dataset == 'cifar10':
     train_loader = dl.get_CIFAR10(train=True, batch_size=hps.bs, augm_type=hps.augm, size=img_size,
-                                  config_dict=id_config)
+                                  config_dict=id_config, augm_parameters=custom_augm_parameters)
 elif hps.dataset == 'cifar100':
     print('using cifar100 train loader')
     train_loader = dl.get_CIFAR100(train=True, batch_size=hps.bs, augm_type=hps.augm, size=img_size,
-                                  config_dict=id_config)
+                                  config_dict=id_config, augm_parameters=custom_augm_parameters)
 elif hps.dataset == 'semi-cifar10':
     train_loader = dl.get_CIFAR10_ti_500k(train=True, batch_size=hps.bs, augm_type=hps.augm, fraction=0.7,
-                                          size=img_size,
-                                          config_dict=id_config)
+                                          size=img_size, config_dict=id_config,
+                                          augm_parameters=custom_augm_parameters)
 else:
     raise ValueError(f'Dataset {hps.datset} not supported')
 
@@ -76,12 +96,15 @@ if hps.train_type.lower() in ['ceda', 'acet', 'advacet', 'tradesacet', 'tradesce
 
     if hps.od_dataset == 'tinyImages':
         tiny_train = dl.get_80MTinyImages(batch_size=od_bs, augm_type=hps.augm, num_workers=1, size=img_size,
-                                          exclude_cifar=hps.exclude_cifar, exclude_cifar10_1=hps.exclude_cifar, config_dict=od_config)
+                                          exclude_cifar=hps.exclude_cifar, exclude_cifar10_1=hps.exclude_cifar, 
+                                          config_dict=od_config, augm_parameters=custom_augm_parameters)
     elif hps.od_dataset == 'cifar100':
         tiny_train = dl.get_CIFAR100(train=True, batch_size=od_bs, shuffle=True, augm_type=hps.augm,
-                                     size=img_size, config_dict=od_config)
+                                     size=img_size, config_dict=od_config, augm_parameters=custom_augm_parameters)
     elif hps.od_dataset == 'openImages':
-        tiny_train = dl.get_openImages('train', batch_size=od_bs, shuffle=True, augm_type=hps.augm, size=img_size, exclude_dataset=None, config_dict=od_config)
+        tiny_train = dl.get_openImages('train', batch_size=od_bs, shuffle=True, augm_type=hps.augm, 
+                                      size=img_size, exclude_dataset=None, config_dict=od_config,
+                                      augm_parameters=custom_augm_parameters)
 else:
     loader_config = {'ID config': id_config}
 

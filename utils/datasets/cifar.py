@@ -48,7 +48,7 @@ def GrayCIFAR10(train=False, batch_size=None, augm_flag=False, shuffle=None, res
     return loader
 
 
-def get_CIFAR10(train=True, batch_size=None, shuffle=None, augm_type='none', cutout_window=16, num_workers=2, size=32, config_dict=None):
+def get_CIFAR10(train=True, batch_size=None, shuffle=None, augm_type='none', cutout_window=16, num_workers=2, size=32, config_dict=None, augm_parameters=None):
     if batch_size == None:
         if train:
             batch_size = DEFAULT_TRAIN_BATCHSIZE
@@ -56,7 +56,8 @@ def get_CIFAR10(train=True, batch_size=None, shuffle=None, augm_type='none', cut
             batch_size = DEFAULT_TEST_BATCHSIZE
 
     augm_config = {}
-    transform = get_cifar10_augmentation(type=augm_type, cutout_window=cutout_window, out_size=size, config_dict=augm_config)
+    transform = get_cifar10_augmentation(type=augm_type, cutout_window=cutout_window, out_size=size, 
+                                        config_dict=augm_config, augm_parameters=augm_parameters)
     if not train and augm_type != 'none':
         print('Warning: CIFAR10 test set with ref_data augmentation')
 
@@ -80,7 +81,7 @@ def get_CIFAR10_labels():
     return labels
 
 
-def get_CIFAR100(train=True, batch_size=None, shuffle=None, augm_type='none', cutout_window=8, num_workers=2, size=32, config_dict=None):
+def get_CIFAR100(train=True, batch_size=None, shuffle=None, augm_type='none', cutout_window=8, num_workers=2, size=32, config_dict=None, augm_parameters=None):
     if batch_size == None:
         if train:
             batch_size = DEFAULT_TRAIN_BATCHSIZE
@@ -88,7 +89,8 @@ def get_CIFAR100(train=True, batch_size=None, shuffle=None, augm_type='none', cu
             batch_size = DEFAULT_TEST_BATCHSIZE
 
     augm_config = {}
-    transform = get_cifar10_augmentation(type=augm_type, cutout_window=cutout_window, out_size=size, config_dict=augm_config)
+    transform = get_cifar10_augmentation(type=augm_type, cutout_window=cutout_window, out_size=size, 
+                                        config_dict=augm_config, augm_parameters=augm_parameters)
     if not train and augm_type != 'none':
         print('Warning: CIFAR100 test set with ref_data augmentation')
 

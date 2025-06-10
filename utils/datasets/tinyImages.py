@@ -12,14 +12,15 @@ DEFAULT_TRAIN_BATCHSIZE = 128
 DEFAULT_TEST_BATCHSIZE = 128
 
 def get_80MTinyImages(batch_size=100, augm_type='default', shuffle=True, cutout_window=16, num_workers=1,
-                      size=32, exclude_cifar=False, exclude_cifar10_1=False, config_dict=None):
+                      size=32, exclude_cifar=False, exclude_cifar10_1=False, config_dict=None, augm_parameters=None):
     #dataset is the dataset that will be excluded, eg CIFAR10
     if num_workers > 1:
         pass
         #raise ValueError('Bug in the current multithreaded tinyimages implementation')
 
     augm_config = {}
-    transform = get_cifar10_augmentation(augm_type, cutout_window=cutout_window, out_size=size, config_dict=augm_config)
+    transform = get_cifar10_augmentation(augm_type, cutout_window=cutout_window, out_size=size, 
+                                        config_dict=augm_config, augm_parameters=augm_parameters)
 
     dataset_out = TinyImagesDataset(transform,
                                     exclude_cifar=exclude_cifar, exclude_cifar10_1=exclude_cifar10_1)
