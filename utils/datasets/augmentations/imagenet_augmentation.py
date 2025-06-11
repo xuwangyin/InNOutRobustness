@@ -49,8 +49,6 @@ def get_imageNet_augmentation(type='default', out_size=224, config_dict=None):
             transforms.Resize((out_size,out_size), interpolation=InterpolationMode.BICUBIC),
             transforms.ToTensor()
         ]
-        transform = transforms.Compose(transform_list)
-        return transform
     elif type == 'madry':
         # Special transforms for ImageNet(s)
         """
@@ -69,8 +67,6 @@ def get_imageNet_augmentation(type='default', out_size=224, config_dict=None):
         transform_list.append(transforms.ToTensor())
         transform_list.append(Lighting(0.05, IMAGENET_PCA['eigval'],
                      IMAGENET_PCA['eigvec']))
-        transform = transforms.Compose(transform_list)
-        return transform
     elif type == 'test' or type is None:
         transform_list = [
             transforms.Resize(int(256/224 * out_size)),

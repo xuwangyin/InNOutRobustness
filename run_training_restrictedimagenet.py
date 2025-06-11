@@ -5,7 +5,7 @@ import os
 import torch
 import torch.nn as nn
 
-from utils.model_normalization import Cifar10Wrapper
+from utils.model_normalization import RestrictedImageNetWrapper
 import utils.datasets as dl
 import utils.models.model_factory_224 as factory
 import utils.run_file_helpers as rh
@@ -14,11 +14,13 @@ from distutils.util import strtobool
 import argparse
 
 parser = argparse.ArgumentParser(description='Define hyperparameters.', prefix_chars='-')
-parser.add_argument('--net', type=str, default='ResNet50', help='ResNet18, 34, 50 or 101')
+parser.add_argument('--net', type=str, default='resnet50_timm', help='ResNet18, 34, 50 or 101')
 parser.add_argument('--model_params', nargs='+', default=[])
 parser.add_argument('--dataset', type=str, default='restrictedimagenet', help='restrictedimagenet')
 parser.add_argument('--od_dataset', type=str, default='restrictedimagenetOD',
                     help=('restrictedimagenetOD, imagenet or openImages'))
+parser.add_argument('--balanced_sampling', type=lambda x: bool(strtobool(x)), default=True,
+                    help='Whether to use balanced sampling for dataset')
 
 rh.parser_add_commons(parser)
 rh.parser_add_adversarial_commons(parser)
@@ -51,7 +53,7 @@ model_dir = os.path.join(model_root_dir, model_name)
 log_dir = os.path.join(logs_root_dir, model_name)
 
 start_epoch, optim_state_dict = rh.load_model_checkpoint(model, model_dir, device, hps)
-model = Cifar10Wrapper(model).to(device)  # Using same wrapper for now, may need to create a specific one
+model = RestrictedImageNetWrapper(model).to(device)
 
 msda_config = rh.create_msda_config(hps)
 
@@ -61,7 +63,7 @@ od_bs = int(hps.od_bs_factor * hps.bs)
 id_config = {}
 if hps.dataset == 'restrictedImagenet':
     train_loader = dl.get_restrictedImageNet(train=True, batch_size=hps.bs, augm_type=hps.augm, size=img_size,
-                                  config_dict=id_config)
+                                  config_dict=id_config, balanced=hps.balanced_sampling)
 else:
     raise ValueError(f'Dataset {hps.dataset} not supported')
 
@@ -84,7 +86,7 @@ else:
     loader_config = {'ID config': id_config}
 
 if hps.dataset == 'restrictedImagenet':
-    test_loader = dl.get_restrictedImageNet(train=False, batch_size=hps.bs, augm_type='none', size=img_size)
+    test_loader = dl.get_restrictedImageNet(train=False, batch_size=hps.bs, augm_type='test', size=img_size, balanced=hps.balanced_sampling)
 else:
     assert False
 
