@@ -21,6 +21,8 @@ parser.add_argument('--od_dataset', type=str, default='restrictedimagenetOD',
                     help=('restrictedimagenetOD, imagenet or openImages'))
 parser.add_argument('--balanced_sampling', type=lambda x: bool(strtobool(x)), default=True,
                     help='Whether to use balanced sampling for dataset')
+parser.add_argument('--task', type=str, default='RestrictedImageNet',
+                    help='Task name used for model and log directory naming')
 
 rh.parser_add_commons(parser)
 rh.parser_add_adversarial_commons(parser)
@@ -39,8 +41,8 @@ else:
     device = torch.device('cuda:' + str(min(device_ids)))
 
 #Load model
-model_root_dir = 'RestrictedImageNetModels'
-logs_root_dir = 'RestrictedImageNetLogs'
+model_root_dir = f'{hps.task}Models'
+logs_root_dir = f'{hps.task}Logs'
 num_classes = 9  # RestrictedImageNet typically has 9 classes
 
 if len(hps.model_params) == 0:

@@ -14,5 +14,6 @@ python -u run_training_restrictedimagenet.py \
   --train_type adversarial \
   --train_clean False \
   --id_steps 7 \
-  --io_steps 15 \
-  2>&1 | tee training_restricted_h100_resnet50_timm_adv_debug.log
+  --id_steps 15 \
+  --task RestrictedImageNetAdvOnly \
+  2>&1 | tee training_restricted_h100_resnet50_timm_advonly.log

@@ -44,7 +44,7 @@ parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10'
                     help='Dataset to use for testing (cifar10, cifar100, or restrictedimagenet)')
 parser.add_argument('--distance_type', type=str, default='L2', choices=['L2', 'Linf'],
                     help='Distance type for adversarial attacks (L2 or Linf)')
-parser.add_argument('--eps', type=float, default=3.5,
+parser.add_argument('--eps', type=float, default=0.5,
                     help='Epsilon value for adversarial attacks (default: 0.5 for CIFAR10/100, 3.5 for RestrictedImageNet)')
 
 hps = parser.parse_args()
@@ -97,7 +97,6 @@ if hps.checkpoint is not None:
     model_descriptions = [
         (hps.model_type, folder, checkpoint_name, hps.temperature, hps.load_temp),
     ]
-    print(model_descriptions)
 
 for model_idx, (type, folder, checkpoint, temperature, temp) in enumerate(model_descriptions):
     model = load_model(type, folder, checkpoint,
@@ -111,7 +110,7 @@ for model_idx, (type, folder, checkpoint, temperature, temp) in enumerate(model_
     print(f'\n\n{folder} {checkpoint}\n ')
 
     # TODO using augm_type='none' give higher numbers
-    restrictedimagenet_augm_type = 'none'
+    restrictedimagenet_augm_type = 'test'
 
     if dataset == 'cifar10':
         dataloader = dl.get_CIFAR10(False, batch_size=bs, augm_type='none')

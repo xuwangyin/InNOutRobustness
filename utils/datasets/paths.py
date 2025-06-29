@@ -62,7 +62,7 @@ def get_tiny_images_lmdb():
     raise NotImplementedError()
 
 def get_imagenet_path():
-    path = "/work1/sawmya/ttw/UAT/ImageNet"
+    path = "/home/xuwang/ImageNet"
     return path
 
 def get_imagenet_o_path():
