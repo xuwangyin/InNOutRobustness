@@ -534,8 +534,7 @@ dependencies:
       - nvidia-nvtx-cu12==12.6.77
       - safetensors==0.5.3
       - sympy==1.13.3
-      - tensorboard==2.19.0
-      - tensorboard-data-server==0.7.2
+      - wandb==0.18.7
       - timm==1.0.15
       - torch==2.7.0+cu126
       - torchaudio==2.7.0+cu126

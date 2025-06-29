@@ -4,25 +4,34 @@ from datetime import datetime
 import time
 from tqdm import tqdm
 import torch
-from torch.utils.tensorboard import SummaryWriter
+import wandb
 from .train_loss import Log, LogType
 import time
 
 class OutputBackend:
     def __init__(self, base_model_dir, log_dir, type_description, print_output=True, batch_update_interval=10):
         self._create_model_dirs(base_model_dir, log_dir, type_description)
-        self.writer = SummaryWriter(self.writer_dir)
+        # Initialize wandb
+        import os
+        wandb_name = os.getenv('WANDB_NAME', self.model_name)
+        wandb.init(
+            project="InNOutRobustness",
+            name=wandb_name,
+            dir=self.writer_dir
+        )
+        # Reset step counter to ensure epoch-based logging starts from 0
+        wandb.log({}, step=0)
         self.epoch_t_average = 0
         self.epoch_t_N = 0
         self.print_output = print_output
         self.batch_update_interval = batch_update_interval
 
     def close_backend(self):
-        self.writer.close()
+        wandb.finish()
         self._finalize_model_dirs()
 
     def log_epoch_time(self, epoch_t, epoch, total_epochs):
-        self.writer.add_scalar('EpochTime', epoch_t, epoch)
+        wandb.log({'EpochTime': epoch_t}, step=epoch)
         self.epoch_t_average = self.epoch_t_average + (epoch_t - self.epoch_t_average) / min(self.epoch_t_N + 1, 5)
         self.epoch_t_N += 1
 
@@ -35,15 +44,20 @@ class OutputBackend:
             train_prefix = 'Train'
         else:
             train_prefix = 'Test'
+        
+        log_dict = {}
         for log in losses_logs:
             tag = f'{train_prefix}/{category}/{log.name}'
 
             if log.type is LogType.SCALAR:
-                self.writer.add_scalar(tag, log.value, epoch)
+                log_dict[tag] = log.value
             elif log.type is LogType.HISTOGRAM:
-                self.writer.add_histogram(tag, log.value, epoch)
+                log_dict[tag] = wandb.Histogram(log.value)
             else:
                 raise ValueError(f'{log.name} passed not supported type')
+        
+        if log_dict:
+            wandb.log(log_dict, step=epoch)
 
     def write_losses(self, losses, epoch, train):
         losses_logs_combined = []
@@ -197,6 +211,6 @@ class OutputBackend:
             OutputBackend._save_dict_to_txt(configs, fileID)
 
         markdown_text = OutputBackend._create_dict_markdown_text(configs, '')
-        self.writer.add_text(f'Params/config', markdown_text)
+        wandb.log({"config": wandb.Html(markdown_text)})
 
 
