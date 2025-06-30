@@ -20,7 +20,6 @@ class OutputBackend:
             dir=self.writer_dir
         )
         # Reset step counter to ensure epoch-based logging starts from 0
-        wandb.log({}, step=0)
         self.epoch_t_average = 0
         self.epoch_t_N = 0
         self.print_output = print_output
@@ -211,6 +210,6 @@ class OutputBackend:
             OutputBackend._save_dict_to_txt(configs, fileID)
 
         markdown_text = OutputBackend._create_dict_markdown_text(configs, '')
-        wandb.log({"config": wandb.Html(markdown_text)})
+        wandb.log({"config": wandb.Html(markdown_text)}, step=0)
 
 
