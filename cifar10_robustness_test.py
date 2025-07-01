@@ -146,10 +146,26 @@ for model_idx, (type, folder, checkpoint, temperature, temp) in enumerate(model_
 
     print(f'Distance type: {hps.distance_type}, Eps: {hps.eps}')
     
+    # Determine number of classes based on dataset
+    if dataset == 'cifar10':
+        num_classes = 10
+    elif dataset == 'cifar100':
+        num_classes = 100
+    elif dataset == 'restrictedimagenet':
+        num_classes = 9  # RestrictedImageNet has 9 classes
+    else:
+        raise NotImplementedError(f"Number of classes not defined for dataset: {dataset}")
+    
     if hps.distance_type == 'L2':
         attack = AutoAttack(model, device=device, norm='L2', eps=hps.eps, verbose=True)
+        # Set the number of target classes for targeted attacks
+        attack.apgd_targeted.n_target_classes = num_classes - 1
+        attack.fab.n_target_classes = num_classes - 1
         attack.run_standard_evaluation(ref_data, target, bs=bs)
     elif hps.distance_type == 'Linf':
         attack = AutoAttack(model, device=device, norm='Linf', eps=hps.eps, verbose=True)
+        # Set the number of target classes for targeted attacks
+        attack.apgd_targeted.n_target_classes = num_classes - 1
+        attack.fab.n_target_classes = num_classes - 1
         attack.run_standard_evaluation(ref_data, target, bs=bs)
 
