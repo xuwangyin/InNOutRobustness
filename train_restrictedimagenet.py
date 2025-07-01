@@ -28,7 +28,7 @@ def main():
                        help='Additional model parameters')
     
     # Dataset parameters
-    parser.add_argument('--balanced_sampling', type=lambda x: bool(strtobool(x)), default=True,
+    parser.add_argument('--balanced_sampling', type=lambda x: bool(strtobool(x)), default=False,
                        help='Use balanced sampling for dataset (default: True)')
     
     # Training parameters
@@ -95,13 +95,21 @@ def main():
     # Standard training configuration
     loader_config = {'ID config': id_config}
     
-    # Test data loader
-    test_loader = dl.get_restrictedImageNet(
+    # Test data loaders - balanced and natural sampling
+    test_loader_balanced = dl.get_restrictedImageNet(
         train=False, 
         batch_size=args.bs, 
         augm_type='test', 
         size=img_size, 
-        balanced=args.balanced_sampling
+        balanced=True
+    )
+    
+    test_loader_natural = dl.get_restrictedImageNet(
+        train=False, 
+        batch_size=args.bs, 
+        augm_type='test', 
+        size=img_size, 
+        balanced=False
     )
     
     # Loss function
@@ -135,7 +143,7 @@ def main():
                 label = target[i].cpu().item()
                 images.append(wandb.Image(img, caption=f"{phase} Label: {label}"))
             
-            wandb.log({f"Sample_{phase}_Images": images})
+            wandb.log({f"Sample_{phase}_Images": images}, step=0)
             return True
         return logged_flag
     
@@ -143,7 +151,7 @@ def main():
     wandb.init(
         project="InNOutRobustness",
         entity="xuwangyin",
-        name=f"restrictedimagenet_resnet50_standard_training_epoch75_augdefault",
+        name=f"restrictedimagenet_resnet50_standard_training_epoch75_augdefault_naturalsampling",
         config={
             "model": args.net,
             "epochs": args.epochs,
@@ -195,27 +203,45 @@ def main():
         train_acc = correct / total
         avg_train_loss = train_loss / len(train_loader)
         
-        # Evaluation phase
+        # Evaluation phase - balanced sampling
         model.eval()
-        test_loss = 0.0
-        correct = 0
-        total = 0
+        test_loss_balanced = 0.0
+        correct_balanced = 0
+        total_balanced = 0
         
         with torch.no_grad():
-            for data, target in test_loader:
+            for data, target in test_loader_balanced:
                 data, target = data.to(device), target.to(device)
                 
                 # Log test images once
                 test_images_logged = log_images_once(data, target, "Test", test_images_logged)
                 
                 output = model(data)
-                test_loss += criterion(output, target).item()
+                test_loss_balanced += criterion(output, target).item()
                 _, predicted = output.max(1)
-                total += target.size(0)
-                correct += predicted.eq(target).sum().item()
+                total_balanced += target.size(0)
+                correct_balanced += predicted.eq(target).sum().item()
         
-        test_acc = correct / total
-        avg_test_loss = test_loss / len(test_loader)
+        test_acc_balanced = correct_balanced / total_balanced
+        avg_test_loss_balanced = test_loss_balanced / len(test_loader_balanced)
+        
+        # Evaluation phase - natural sampling
+        test_loss_natural = 0.0
+        correct_natural = 0
+        total_natural = 0
+        
+        with torch.no_grad():
+            for data, target in test_loader_natural:
+                data, target = data.to(device), target.to(device)
+                
+                output = model(data)
+                test_loss_natural += criterion(output, target).item()
+                _, predicted = output.max(1)
+                total_natural += target.size(0)
+                correct_natural += predicted.eq(target).sum().item()
+        
+        test_acc_natural = correct_natural / total_natural
+        avg_test_loss_natural = test_loss_natural / len(test_loader_natural)
         
         # Update scheduler
         scheduler.step()
@@ -224,14 +250,15 @@ def main():
         wandb.log({
             "Train/Statistics/LR": scheduler.get_last_lr()[0],
             "Train/Statistics/CleanAccuracy": train_acc,
-            "Test/Statistics/CleanAccuracy": test_acc,
-            "epoch": epoch
-        })
+            "Test/Statistics/CleanAccuracy_Balanced": test_acc_balanced,
+            "Test/Statistics/CleanAccuracy_Natural": test_acc_natural,
+        }, step=epoch)
         
         # Print epoch results
         print(f'Epoch {epoch+1}/{args.epochs} completed in {epoch_time:.2f}s')
         print(f'Train Loss: {avg_train_loss:.6f} | Train Acc: {train_acc:.2f}%')
-        print(f'Test Loss: {avg_test_loss:.6f} | Test Acc: {test_acc:.2f}%')
+        print(f'Test Loss (Balanced): {avg_test_loss_balanced:.6f} | Test Acc (Balanced): {test_acc_balanced:.2f}%')
+        print(f'Test Loss (Natural): {avg_test_loss_natural:.6f} | Test Acc (Natural): {test_acc_natural:.2f}%')
         print(f'Learning Rate: {scheduler.get_last_lr()[0]:.6f}')
         print('-' * 80)
         
@@ -243,9 +270,11 @@ def main():
         #         'optimizer_state_dict': optimizer.state_dict(),
         #         'scheduler_state_dict': scheduler.state_dict(),
         #         'train_acc': train_acc,
-        #         'test_acc': test_acc,
+        #         'test_acc_balanced': test_acc_balanced,
+        #         'test_acc_natural': test_acc_natural,
         #         'train_loss': avg_train_loss,
-        #         'test_loss': avg_test_loss
+        #         'test_loss_balanced': avg_test_loss_balanced,
+        #         'test_loss_natural': avg_test_loss_natural
         #     }
         #     torch.save(checkpoint, os.path.join(model_dir, f'checkpoint_epoch_{epoch+1}.pth'))
         #     print(f'Checkpoint saved at epoch {epoch+1}')
@@ -257,12 +286,14 @@ def main():
         'optimizer_state_dict': optimizer.state_dict(),
         'scheduler_state_dict': scheduler.state_dict(),
         'train_acc': train_acc,
-        'test_acc': test_acc,
+        'test_acc_balanced': test_acc_balanced,
+        'test_acc_natural': test_acc_natural,
         'train_loss': avg_train_loss,
-        'test_loss': avg_test_loss
+        'test_loss_balanced': avg_test_loss_balanced,
+        'test_loss_natural': avg_test_loss_natural
     }
     torch.save(final_checkpoint, os.path.join(model_dir, 'final_model.pth'))
-    print(f'Final model saved with test accuracy: {test_acc:.2f}%')
+    print(f'Final model saved with test accuracy (balanced): {test_acc_balanced:.2f}%, (natural): {test_acc_natural:.2f}%')
     
     # Finish wandb run
     wandb.finish()
