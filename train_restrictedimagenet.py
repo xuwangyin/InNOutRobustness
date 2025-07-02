@@ -79,6 +79,11 @@ def main():
     
     model = RestrictedImageNetWrapper(model).to(device)
     
+    # Enable multi-GPU training if multiple GPUs are specified
+    if device_ids is not None and len(device_ids) > 1:
+        print(f'Using DataParallel with GPUs: {device_ids}')
+        model = nn.DataParallel(model, device_ids=device_ids)
+    
     # Dataset setup
     id_config = {}
     
@@ -177,17 +182,27 @@ def main():
         total = 0
         
         start_time = time.time()
-        for batch_idx, (data, target) in enumerate(train_loader):
+        train_loader_iter = iter(train_loader)
+        for batch_idx in range(len(train_loader)):
+            # Time data loading from disk
+            data_load_start = time.time()
+            data, target = next(train_loader_iter)
+            data_load_time = time.time() - data_load_start
+            
+            # Move to device
             data, target = data.to(device), target.to(device)
             
             # Log training images once
             train_images_logged = log_images_once(data, target, "Training", train_images_logged)
             
+            # Time model forward pass and backward pass
+            model_start = time.time()
             optimizer.zero_grad()
             output = model(data)
             loss = criterion(output, target)
             loss.backward()
             optimizer.step()
+            model_time = time.time() - model_start
             
             train_loss += loss.item()
             _, predicted = output.max(1)
@@ -196,7 +211,8 @@ def main():
             
             if batch_idx % args.print_freq == 0:
                 print(f'Epoch: {epoch+1}/{args.epochs} | Batch: {batch_idx}/{len(train_loader)} | '
-                      f'Loss: {loss.item():.6f} | Acc: {100.*correct/total:.2f}%')
+                      f'Loss: {loss.item():.6f} | Acc: {100.*correct/total:.2f}% | '
+                      f'Data Load: {data_load_time*1000:.2f}ms | Model: {model_time*1000:.2f}ms')
         
         # Calculate epoch metrics
         epoch_time = time.time() - start_time
