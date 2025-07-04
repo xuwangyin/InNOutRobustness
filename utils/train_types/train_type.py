@@ -395,7 +395,7 @@ class TrainType:
                 dist.barrier()
 
             #save model (only rank 0)
-            if (epoch % (5 * self.test_epochs) == 0) or ((epoch / self.epochs >= 0.8) & (epoch % 5 == 0)):
+            if (epoch % (10 * self.test_epochs) == 0) or ((epoch / self.epochs >= 0.8) & (epoch % 5 == 0)):
                 if not self.use_ddp or self.rank == 0:
                     self.output_backend.save_model_checkpoint(self.get_model_state_dict(), epoch,
                                                               optimizer_state_dict=self.get_optimizer_state_dict())

@@ -1,7 +1,7 @@
 from utils.models.models_32x32.resnet import ResNet50, ResNet18, ResNet34
 from utils.models.models_32x32.fixup_resnet import fixup_resnet20, fixup_resnet56
 from utils.models.models_32x32.wide_resnet import WideResNet28x2, WideResNet28x10, WideResNet28x20, WideResNet34x20, WideResNet40x10, WideResNet70x16, WideResNet34x10
-from timm.models.factory import create_model
+from timm.models import create_model
 from utils.models.models_32x32.pyramid import aa_PyramidNet
 
 def try_number_conversion(s):

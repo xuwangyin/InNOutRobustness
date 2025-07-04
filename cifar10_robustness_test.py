@@ -117,7 +117,7 @@ for model_idx, (type, folder, checkpoint, temperature, temp) in enumerate(model_
     elif dataset == 'cifar100':
         dataloader = dl.get_CIFAR100(False, batch_size=bs, augm_type='none')
     elif dataset == 'restrictedimagenet':
-        dataloader = dl.get_restrictedImageNet(train=False, augm_type=restrictedimagenet_augm_type, batch_size=bs, balanced=True)
+        dataloader = dl.get_restrictedImageNet(train=False, augm_type=restrictedimagenet_augm_type, batch_size=bs, balanced=False)
     else:
         raise NotImplementedError()
 
@@ -137,7 +137,7 @@ for model_idx, (type, folder, checkpoint, temperature, temp) in enumerate(model_
     elif dataset == 'cifar100':
         dataloader = dl.get_CIFAR100(False, batch_size=ROBUSTNESS_DATAPOINTS, augm_type='none')
     elif dataset == 'restrictedimagenet':
-        dataloader = dl.get_restrictedImageNet(train=False, augm_type=restrictedimagenet_augm_type, batch_size=ROBUSTNESS_DATAPOINTS, balanced=True)
+        dataloader = dl.get_restrictedImageNet(train=False, augm_type=restrictedimagenet_augm_type, batch_size=ROBUSTNESS_DATAPOINTS, balanced=False)
     else:
         raise NotImplementedError()
     

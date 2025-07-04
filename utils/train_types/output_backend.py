@@ -23,6 +23,8 @@ class OutputBackend:
                 name=wandb_name,
                 dir=self.writer_dir
             )
+            # Log model directories after wandb initialization
+            wandb.log({"model_final_dir": self.main_dir, "model_temp_dir": self.temp_dir}, step=0)
         
         # Reset step counter to ensure epoch-based logging starts from 0
         self.epoch_t_average = 0

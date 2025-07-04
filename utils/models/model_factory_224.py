@@ -1,4 +1,4 @@
-from timm.models.factory import create_model
+from timm.models import create_model
 from resnet import resnet50, wide_resnet50_2
 
 def build_model(model_name, num_classes, **kwargs):
