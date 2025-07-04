@@ -70,14 +70,14 @@ class ACETTraining(OutDistributionTraining):
     def __init__(self, model, od_attack_config, optimizer_config, epochs, device, num_classes,
                  lr_scheduler_config=None, model_config=None, target_confidences=False, od_weight=1.,
                  train_obj='KL', attack_obj='KL',test_epochs=5, verbose=100,
-                 saved_model_dir='SavedModels', saved_log_dir='Logs'):
+                 saved_model_dir='SavedModels', saved_log_dir='Logs', use_ddp=False, rank=None):
 
         distance = get_distance(od_attack_config['norm'])
 
         super().__init__('ACET', model, distance, optimizer_config, epochs, device, num_classes,
                          lr_scheduler_config=lr_scheduler_config, model_config=model_config, od_weight=od_weight,
                          test_epochs=test_epochs, verbose=verbose, saved_model_dir=saved_model_dir,
-                         saved_log_dir=saved_log_dir)
+                         saved_log_dir=saved_log_dir, use_ddp=use_ddp, rank=rank)
 
         self.od_attack_config = od_attack_config
 

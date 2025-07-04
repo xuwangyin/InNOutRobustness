@@ -289,62 +289,72 @@ def create_attack_config(hps, dataset):
     return id_attack_config, od_attack_config
 
 def create_trainer(hps, model, optimizer_config, scheduler_config, device, num_classes, model_dir, log_dir,
-                   msda_config=None, model_config=None, id_attack_config=None, od_attack_config=None):
+                   msda_config=None, model_config=None, id_attack_config=None, od_attack_config=None, 
+                   use_ddp=False, rank=None):
 
     if hps.train_type.lower() == 'plain':
         trainer = tt.PlainTraining(model, optimizer_config, hps.epochs, device, num_classes,
                                    lr_scheduler_config=scheduler_config,
                                    msda_config=msda_config, model_config=model_config,
-                                   saved_model_dir=model_dir, saved_log_dir=log_dir, test_epochs=hps.test_epochs)
+                                   saved_model_dir=model_dir, saved_log_dir=log_dir, test_epochs=hps.test_epochs,
+                                   use_ddp=use_ddp, rank=rank)
     elif hps.train_type.lower() == 'adversarial':
         # https://arxiv.org/pdf/1906.09453.pdf
 
         trainer = tt.AdversarialTraining(model, id_attack_config, optimizer_config, hps.epochs, device, num_classes,
                                          train_clean=hps.train_clean, attack_loss=hps.adv_obj,
                                          lr_scheduler_config=scheduler_config, model_config=model_config,
-                                         saved_model_dir=model_dir, saved_log_dir=log_dir, test_epochs=hps.test_epochs)
+                                         saved_model_dir=model_dir, saved_log_dir=log_dir, test_epochs=hps.test_epochs,
+                                         use_ddp=use_ddp, rank=rank)
     elif hps.train_type.lower() in ['trades']:
         trainer = tt.TRADESTraining(model, id_attack_config, optimizer_config, hps.epochs, device, num_classes,
                                     lr_scheduler_config=scheduler_config, model_config=model_config,
                                     trades_weight=hps.trades_weight,
-                                    saved_model_dir=model_dir, saved_log_dir=log_dir, test_epochs=hps.test_epochs)
+                                    saved_model_dir=model_dir, saved_log_dir=log_dir, test_epochs=hps.test_epochs,
+                                    use_ddp=use_ddp, rank=rank)
     elif hps.train_type.lower() in ['advacet']:
         # https://arxiv.org/pdf/1906.09453.pdf
         trainer = tt.AdversarialACET(model, id_attack_config, od_attack_config, optimizer_config, hps.epochs, device,
                                      num_classes, train_clean=hps.train_clean, attack_loss=hps.adv_obj,
                                      lr_scheduler_config=scheduler_config, model_config=model_config,
                                      train_obj=hps.ceda_obj, attack_obj=hps.ceda_obj, od_weight=hps.od_weight,
-                                     saved_model_dir=model_dir, saved_log_dir=log_dir, test_epochs=hps.test_epochs)
+                                     saved_model_dir=model_dir, saved_log_dir=log_dir, test_epochs=hps.test_epochs,
+                                     use_ddp=use_ddp, rank=rank)
     elif hps.train_type.lower()  == 'tradesacet':
         trainer = tt.TRADESACETTraining(model, id_attack_config, od_attack_config, optimizer_config, hps.epochs, device,
                                         num_classes, trades_weight=hps.trades_weight,
                                         lr_scheduler_config=scheduler_config, model_config=model_config,
                                         acet_obj=hps.ceda_obj, od_weight=hps.od_weight,
-                                        saved_model_dir=model_dir, saved_log_dir=log_dir, test_epochs=hps.test_epochs)
+                                        saved_model_dir=model_dir, saved_log_dir=log_dir, test_epochs=hps.test_epochs,
+                                        use_ddp=use_ddp, rank=rank)
     elif hps.train_type.lower()  == 'tradesceda':
         trainer = tt.TRADESCEDATraining(model, id_attack_config, od_attack_config, optimizer_config, hps.epochs, device,
                                         num_classes, id_trades_weight=hps.trades_weight, od_trades_weight=hps.od_trades_weight,
                                         lr_scheduler_config=scheduler_config,
                                         ceda_obj=hps.ceda_obj, od_weight=hps.od_weight, model_config=model_config,
-                                        test_epochs=hps.test_epochs, saved_model_dir=model_dir, saved_log_dir=log_dir)
+                                        test_epochs=hps.test_epochs, saved_model_dir=model_dir, saved_log_dir=log_dir,
+                                        use_ddp=use_ddp, rank=rank)
     elif hps.train_type == 'CEDA':
         trainer = tt.CEDATraining(model, optimizer_config, hps.epochs, device, num_classes, lr_scheduler_config=scheduler_config,
                                   msda_config=msda_config, model_config=model_config,
                                   train_obj=hps.ceda_obj, od_weight=hps.od_weight, saved_model_dir=model_dir,
-                                  saved_log_dir=log_dir, test_epochs=hps.test_epochs)
+                                  saved_log_dir=log_dir, test_epochs=hps.test_epochs,
+                                  use_ddp=use_ddp, rank=rank)
     elif hps.train_type.lower() == 'acet':
         # L2 disance between cifar10 and mnist is about 14 on average
         trainer = tt.ACETTraining(model, od_attack_config, optimizer_config, hps.epochs, device, num_classes,
                                   lr_scheduler_config=scheduler_config, model_config=model_config,
                                   od_weight=hps.od_weight, train_obj=hps.ceda_obj, attack_obj=hps.ceda_obj,
-                                  test_epochs=hps.test_epochs, saved_model_dir=model_dir, saved_log_dir=log_dir)
+                                  test_epochs=hps.test_epochs, saved_model_dir=model_dir, saved_log_dir=log_dir,
+                                  use_ddp=use_ddp, rank=rank)
     elif hps.train_type.lower() in ['randomizedsmoothing', 'randomized_smoothing']:
         rs_noise_scales = torch.FloatTensor(np.geomspace(hps.rs_sigma_begin, hps.rs_sigma_end, hps.rs_levels))
         trainer = tt.RandomizedSmoothingTraining(model, optimizer_config, hps.epochs, device, num_classes, rs_noise_scales,
                                                  train_clean=hps.train_clean, lr_scheduler_config=scheduler_config,
                                                  model_config=model_config,
                                                   saved_model_dir=model_dir, saved_log_dir=log_dir,
-                                                 test_epochs=hps.test_epochs)
+                                                 test_epochs=hps.test_epochs,
+                                                 use_ddp=use_ddp, rank=rank)
     else:
         raise ValueError('Train type {} is not supported'.format(hps.train_type))
 

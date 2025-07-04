@@ -9,7 +9,6 @@ import math
 from .out_distribution_training import OutDistributionTraining
 from .helpers import interleave_forward
 from .train_loss import CrossEntropyProxy, AccuracyConfidenceLogger, DistanceLogger, ConfidenceLogger, SingleValueLogger, SingleValueHistogramLogger
-import torch.cuda.amp as amp
 from .in_distribution_training import InDistributionTraining
 ######################################################
 
@@ -18,12 +17,12 @@ class InOutDistributionTraining(OutDistributionTraining):
                  train_clean=True, id_trades=False, id_weight=1.0, clean_weight=1.0, id_adv_weight=1.0,
                  od_trades=False, od_weight=1.0, od_clean_weight=1.0, od_adv_weight=1.0,
                  lr_scheduler_config=None, model_config=None, test_epochs=1, verbose=100, saved_model_dir='SavedModels',
-                 saved_log_dir='Logs'):
+                 saved_log_dir='Logs', use_ddp=False, rank=None):
 
         super().__init__(name, model, od_distance, optimizer_config, epochs, device, num_classes,
                          lr_scheduler_config=lr_scheduler_config, model_config=model_config, od_weight=od_weight,
                          test_epochs=test_epochs, verbose=verbose, saved_model_dir=saved_model_dir,
-                         saved_log_dir=saved_log_dir)
+                         saved_log_dir=saved_log_dir, use_ddp=use_ddp, rank=rank)
 
         #ID attributes
         self.train_clean = train_clean
@@ -256,20 +255,18 @@ class InOutDistributionTraining(OutDistributionTraining):
             #od attack
             od_adv_samples = od_train_criterion.inner_max(od_data, od_target)
 
-            with amp.autocast(enabled=self.mixed_precision):
-                loss_closure = self.__get_loss_closure(clean_data, clean_target, id_adv_samples, id_data, id_target,
-                                                       clean_od_data, clean_od_target, od_adv_samples, od_data, od_target,
-                                                       clean_loss, id_train_criterion, od_clean_loss, od_train_criterion,
-                                                       total_loss_logger=total_loss_logger,
-                                                       lr_logger=lr_logger,
-                                                       acc_conf_clean=acc_conf_clean,
-                                                       acc_conf_id=acc_conf_id,
-                                                       distance_id=distance_id,
-                                                       confidence_od=confidence_od,
-                                                       distance_od=distance_od)
+            loss_closure = self.__get_loss_closure(clean_data, clean_target, id_adv_samples, id_data, id_target,
+                                                   clean_od_data, clean_od_target, od_adv_samples, od_data, od_target,
+                                                   clean_loss, id_train_criterion, od_clean_loss, od_train_criterion,
+                                                   total_loss_logger=total_loss_logger,
+                                                   lr_logger=lr_logger,
+                                                   acc_conf_clean=acc_conf_clean,
+                                                   acc_conf_id=acc_conf_id,
+                                                   distance_id=distance_id,
+                                                   confidence_od=confidence_od,
+                                                   distance_od=distance_od)
 
-
-                self._loss_step(loss_closure)
+            self._loss_step(loss_closure)
 
             #ema
             if self.ema:
@@ -347,11 +344,10 @@ class InOutDistributionTraining(OutDistributionTraining):
                 # od attack
                 od_adv_samples = od_train_criterion.inner_max(od_data, od_target)
 
-                with amp.autocast(enabled=self.mixed_precision):
-                    loss_closure = self.__get_loss_closure(clean_data, clean_target, id_adv_samples, id_data, id_target,
-                                                           clean_od_data, clean_od_target, od_adv_samples, od_data,
-                                                           od_target,
-                                                           clean_loss, id_train_criterion, od_clean_loss,
-                                                           od_train_criterion)
+                loss_closure = self.__get_loss_closure(clean_data, clean_target, id_adv_samples, id_data, id_target,
+                                                       clean_od_data, clean_od_target, od_adv_samples, od_data,
+                                                       od_target,
+                                                       clean_loss, id_train_criterion, od_clean_loss,
+                                                       od_train_criterion)
 
-                    loss_closure(log=False)
+                loss_closure(log=False)

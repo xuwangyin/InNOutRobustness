@@ -44,8 +44,15 @@ def main():
     parser.add_argument('--gpu', nargs='+', type=int, default=[0], help='GPU IDs to use')
     parser.add_argument('--save_freq', type=int, default=10, help='Save model every N epochs')
     parser.add_argument('--print_freq', type=int, default=100, help='Print frequency during training')
+    parser.add_argument('--num_workers', type=int, default=None, help='Number of data loading workers (default: auto-detect)')
     
     args = parser.parse_args()
+    
+    # Set optimal number of workers if not specified
+    if args.num_workers is None:
+        args.num_workers = min(os.cpu_count(), 16)  # Cap at 16 for memory efficiency
+    
+    print(f'Using {args.num_workers} data loading workers')
     
     # Device setup
     device_ids = None
@@ -94,7 +101,8 @@ def main():
         augm_type=args.augm, 
         size=img_size,
         config_dict=id_config, 
-        balanced=args.balanced_sampling
+        balanced=args.balanced_sampling,
+        num_workers=args.num_workers
     )
     
     # Standard training configuration
@@ -106,7 +114,8 @@ def main():
         batch_size=args.bs, 
         augm_type='test', 
         size=img_size, 
-        balanced=True
+        balanced=True,
+        num_workers=args.num_workers
     )
     
     test_loader_natural = dl.get_restrictedImageNet(
@@ -114,7 +123,8 @@ def main():
         batch_size=args.bs, 
         augm_type='test', 
         size=img_size, 
-        balanced=False
+        balanced=False,
+        num_workers=args.num_workers
     )
     
     # Loss function
@@ -168,12 +178,19 @@ def main():
             "scheduler": args.schedule,
             "augmentation": args.augm,
             "balanced_sampling": args.balanced_sampling,
-            "num_classes": num_classes
+            "num_classes": num_classes,
+            "num_workers": args.num_workers
         }
     )
     
     # Training loop
     print(f'Starting training for {args.epochs} epochs')
+    
+    # Initialize moving averages for timing
+    data_load_time_ma = 0.0
+    model_time_ma = 0.0
+    ma_alpha = 0.9  # exponential moving average factor
+    
     for epoch in range(args.epochs):
         # Training phase
         model.train()
@@ -209,10 +226,21 @@ def main():
             total += target.size(0)
             correct += predicted.eq(target).sum().item()
             
+            # Update moving averages
+            if batch_idx == 0 and epoch == 0:
+                # Initialize moving averages with first values
+                data_load_time_ma = data_load_time
+                model_time_ma = model_time
+            else:
+                # Exponential moving average update
+                data_load_time_ma = ma_alpha * data_load_time_ma + (1 - ma_alpha) * data_load_time
+                model_time_ma = ma_alpha * model_time_ma + (1 - ma_alpha) * model_time
+            
             if batch_idx % args.print_freq == 0:
                 print(f'Epoch: {epoch+1}/{args.epochs} | Batch: {batch_idx}/{len(train_loader)} | '
                       f'Loss: {loss.item():.6f} | Acc: {100.*correct/total:.2f}% | '
-                      f'Data Load: {data_load_time*1000:.2f}ms | Model: {model_time*1000:.2f}ms')
+                      f'Data Load: {data_load_time*1000:.2f}ms (MA: {data_load_time_ma*1000:.2f}ms) | '
+                      f'Model: {model_time*1000:.2f}ms (MA: {model_time_ma*1000:.2f}ms)')
         
         # Calculate epoch metrics
         epoch_time = time.time() - start_time
@@ -268,6 +296,8 @@ def main():
             "Train/Statistics/CleanAccuracy": train_acc,
             "Test/Statistics/CleanAccuracy_Balanced": test_acc_balanced,
             "Test/Statistics/CleanAccuracy_Natural": test_acc_natural,
+            "Train/Timing/DataLoadTime_MA_ms": data_load_time_ma * 1000,
+            "Train/Timing/ModelTime_MA_ms": model_time_ma * 1000,
         }, step=epoch)
         
         # Print epoch results
@@ -319,3 +349,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

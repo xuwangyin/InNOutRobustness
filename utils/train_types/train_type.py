@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 import warnings
 import torch.nn.functional as F
 import torch.optim as optim
 from utils.average_model import AveragedModel
-import torch.cuda.amp as amp
 import copy
 import numpy as np
 import matplotlib.pyplot as plt
@@ -21,10 +22,9 @@ from .helpers import enable_running_stats, disable_running_stats
 class TrainType:
     def __init__(self, type, model, optimizer_config, epochs, device, num_classes, lr_scheduler_config=None,
                  msda_config=None, model_config=None, clean_criterion='crossentropy', test_epochs=5, verbose=100,
-                 saved_model_dir='SavedModels', saved_log_dir='Logs'):
+                 saved_model_dir='SavedModels', saved_log_dir='Logs', use_ddp=False, rank=None):
         self.type = type
         self.model = model
-        self.non_parallel_model = model
         self.optimizer_config = optimizer_config
         self.epochs = epochs
         self.device = device
@@ -41,6 +41,10 @@ class TrainType:
         self.best_avg_model_accuracy = 0.0
 
         self.classes = num_classes
+        
+        # DDP configuration
+        self.use_ddp = use_ddp
+        self.rank = rank
 
     def requires_out_distribution(self):
         return False
@@ -113,10 +117,8 @@ class TrainType:
             if self.sam_optimizer is not None:
                 raise NotImplementedError('SAM and MixedPrecision not supported in combination')
             print('Using mixed precision training')
-            self.scaler = amp.GradScaler(enabled=True)
             self.mixed_precision = True
         else:
-            self.scaler = amp.GradScaler(enabled=False)
             self.mixed_precision = False
 
         #SCHEDULER
@@ -130,47 +132,24 @@ class TrainType:
             raise ValueError('SWA and EMA can not be used in combination')
 
         if self.ema:
-            self.non_parallel_avg_model = \
-                AveragedModel(self.non_parallel_model, avg_type='ema', ema_decay=self.ema_decay, avg_batchnorm=True)
-            self.avg_model = self.non_parallel_avg_model
+            self.avg_model = \
+                AveragedModel(self.model, avg_type='ema', ema_decay=self.ema_decay, avg_batchnorm=True)
         elif self.swa_epochs > 0:
-            self.non_parallel_avg_model = \
-                AveragedModel(self.non_parallel_model, avg_type='swa', avg_batchnorm=False)
-            self.avg_model = self.non_parallel_avg_model
+            self.avg_model = \
+                AveragedModel(self.model, avg_type='swa', avg_batchnorm=False)
         else:
-            self.non_parallel_avg_model = None
             self.avg_model = None
 
     def _update_avg_model(self):
-        if self.non_parallel_avg_model is not None:
+        if self.avg_model is not None:
             with torch.no_grad():
-                self.non_parallel_avg_model.update_parameters(self.non_parallel_model)
+                self.avg_model.update_parameters(self.model)
         else:
             warnings.warn('Call to _update_avg_model but avg model is not defined')
 
-    def _sync_parallel_avg_model(self, device_ids):
-        if self.non_parallel_avg_model is not None:
-            if self.non_parallel_avg_model.avg_batchnorm:
-                # Update the dataparallel avg model to make sure the new batchnorm parameters are used across all devices
-                self._create_parallel_avg_model(device_ids=device_ids)
-        else:
-            warnings.warn('Call to _sync_parallel_avg_model but avg model is not defined')
 
 
-    def _create_parallel_model(self, device_ids):
-        self.in_parallel = True if device_ids is not None else False
-        if device_ids is None:
-            self.model = self.non_parallel_model
-        else:
-            self.model = nn.DataParallel(self.non_parallel_model, device_ids=device_ids)
 
-    def _create_parallel_avg_model(self, device_ids):
-        if self.non_parallel_avg_model is not None:
-            if device_ids is None:
-                self.avg_model = self.non_parallel_avg_model
-            else:
-                self.avg_model = self.avg_model.to(torch.device(f'cuda:{device_ids[0]}'))
-                self.avg_model = nn.DataParallel(self.non_parallel_avg_model, device_ids=device_ids)
 
     def _create_swa_optimizer_scheduler(self):
         #set base lr of optimizer to that of our virtual schedule
@@ -237,6 +216,12 @@ class TrainType:
                     self.best_avg_model_accuracy = test_accuracy
                 else:
                     self.best_accuracy = test_accuracy
+            
+            # Synchronize new_best decision across all ranks in DDP
+            if self.use_ddp:
+                new_best_tensor = torch.tensor(new_best, dtype=torch.bool, device=self.device)
+                dist.broadcast(new_best_tensor, src=0)
+                new_best = new_best_tensor.item()
 
         if 'extra_test_loaders' in test_loaders:
             for i, test_loader in enumerate(test_loaders['extra_test_loaders']):
@@ -257,7 +242,8 @@ class TrainType:
         loggers = [acc_conf]
 
         test_set_batches = len(test_loader)
-        self.output_backend.start_epoch_log(test_set_batches)
+        if not self.use_ddp or self.rank == 0:
+            self.output_backend.start_epoch_log(test_set_batches)
 
         with torch.no_grad():
             for batch_idx, (data, target) in enumerate(test_loader):
@@ -266,10 +252,41 @@ class TrainType:
                 output = model(data)
                 clean_loss(data, output, data, target)
                 acc_conf(data, output, data, target)
-                self.output_backend.log_batch_summary(epoch, batch_idx, False, losses=losses, loggers=loggers)
+                
+                # Only rank 0 logs during testing
+                if not self.use_ddp or self.rank == 0:
+                    self.output_backend.log_batch_summary(epoch, batch_idx, False, losses=losses, loggers=loggers)
 
-        self.output_backend.end_epoch_write_summary(losses, loggers, epoch, False)
-        test_accuracy = acc_conf.get_accuracy()
+        # Aggregate metrics across all ranks if using DDP
+        if self.use_ddp:
+            # Get local metrics
+            local_correct = torch.tensor(acc_conf.correct, dtype=torch.float, device=self.device)
+            local_total = torch.tensor(acc_conf.total, dtype=torch.float, device=self.device)
+            local_loss = torch.tensor(clean_loss.avg, dtype=torch.float, device=self.device)
+            
+            # Reduce across all ranks
+            dist.all_reduce(local_correct, op=dist.ReduceOp.SUM)
+            dist.all_reduce(local_total, op=dist.ReduceOp.SUM)
+            dist.all_reduce(local_loss, op=dist.ReduceOp.SUM)
+            
+            # Calculate global metrics
+            global_accuracy = (local_correct / local_total).item()
+            global_loss = (local_loss / dist.get_world_size()).item()
+            
+            # Update loggers with global metrics (only needed for rank 0 logging)
+            if self.rank == 0:
+                acc_conf.correct = local_correct.item()
+                acc_conf.total = local_total.item()
+                clean_loss.avg = global_loss
+                test_accuracy = global_accuracy
+            else:
+                test_accuracy = global_accuracy
+        else:
+            test_accuracy = acc_conf.get_accuracy()
+
+        # Only rank 0 writes summary
+        if not self.use_ddp or self.rank == 0:
+            self.output_backend.end_epoch_write_summary(losses, loggers, epoch, False)
 
         return test_accuracy
 
@@ -289,16 +306,23 @@ class TrainType:
         else:
             loss = loss_closure(log=True)
             self.optimizer.zero_grad()
-            self.scaler.scale(loss).backward()
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
+            loss.backward()
+            self.optimizer.step()
 
     def get_model_state_dict(self):
-        return self.non_parallel_model.state_dict()
+        if self.use_ddp:
+            return self.model.module.state_dict()
+        else:
+            return self.model.state_dict()
 
     def get_avg_model_state_dict(self):
-        inner_avg = self.non_parallel_avg_model.module
-        return inner_avg.state_dict()
+        if self.use_ddp:
+            # When using DDP, avg_model.module is a DDP-wrapped model
+            # We need to access the actual model inside the DDP wrapper
+            return self.avg_model.module.module.state_dict()
+        else:
+            # When not using DDP, avg_model.module is the actual model
+            return self.avg_model.module.state_dict()
 
     def get_optimizer_state_dict(self):
         return self.optimizer.state_dict()
@@ -347,59 +371,87 @@ class TrainType:
         self._create_optimizer_scheduler()
         self.reset_optimizer(start_epoch, optim_state_dict)
 
-        self.output_backend = OutputBackend(self.model_dir, self.log_dir, self.type)
+        self.output_backend = OutputBackend(self.model_dir, self.log_dir, self.type, use_ddp=self.use_ddp, rank=self.rank)
         self.output_backend.save_model_configs(config)
 
-        #setup dataparallel model
-        self._create_parallel_model(device_ids=device_ids)
 
         #create avg model
         self._create_avg_model()
-        self._create_parallel_avg_model(device_ids=device_ids)
 
         for epoch in range(start_epoch, self.epochs):
             epoch_start_t = time.time()
 
+            # Set epoch for distributed samplers if using DDP
+            if self.use_ddp:
+                # Set epoch for training loaders
+                for loader_name, loader in train_loaders.items():
+                    loader.sampler.set_epoch(epoch)
+
             #train
             self._inner_train(train_loaders, epoch)
 
-            #save model
+            # Synchronize all processes before model saving
+            if self.use_ddp:
+                dist.barrier()
+
+            #save model (only rank 0)
             if (epoch % (5 * self.test_epochs) == 0) or ((epoch / self.epochs >= 0.8) & (epoch % 5 == 0)):
-                self.output_backend.save_model_checkpoint(self.get_model_state_dict(), epoch,
-                                                          optimizer_state_dict=self.get_optimizer_state_dict())
-                if self.ema:
-                    self.output_backend.save_model_checkpoint(self.get_avg_model_state_dict(), epoch,
-                                                              optimizer_state_dict=self.get_optimizer_state_dict(),
-                                                              avg=True)
+                if not self.use_ddp or self.rank == 0:
+                    self.output_backend.save_model_checkpoint(self.get_model_state_dict(), epoch,
+                                                              optimizer_state_dict=self.get_optimizer_state_dict())
+                    if self.ema:
+                        self.output_backend.save_model_checkpoint(self.get_avg_model_state_dict(), epoch,
+                                                                  optimizer_state_dict=self.get_optimizer_state_dict(),
+                                                                  avg=True)
 
             #test and save best
             if (epoch / self.epochs >= 0.8) | (epoch % self.test_epochs == 0):
+                # Synchronize before evaluation
+                if self.use_ddp:
+                    dist.barrier()
+                
                 new_best = self.test(test_loaders, epoch, False)
-                state_dict = self.get_model_state_dict()
-                if new_best:
-                    self.output_backend.save_model_checkpoint(state_dict, 'best',
-                                                              optimizer_state_dict=self.get_optimizer_state_dict())
+                
+                # Synchronize after evaluation and save best model (only rank 0)
+                if self.use_ddp:
+                    dist.barrier()
+                
+                if not self.use_ddp or self.rank == 0:
+                    state_dict = self.get_model_state_dict()
+                    if new_best:
+                        self.output_backend.save_model_checkpoint(state_dict, 'best',
+                                                                  optimizer_state_dict=self.get_optimizer_state_dict())
 
                 if self.ema:
                     #self._update_avg_model_batch_norm(train_loaders)
-                    self._sync_parallel_avg_model(device_ids=device_ids)
                     new_best = self.test(test_loaders, epoch, True)
-                    state_dict = self.get_avg_model_state_dict()
-                    if new_best:
-                        self.output_backend.save_model_checkpoint(state_dict, 'best', avg=True)
+                    
+                    if not self.use_ddp or self.rank == 0:
+                        state_dict = self.get_avg_model_state_dict()
+                        if new_best:
+                            self.output_backend.save_model_checkpoint(state_dict, 'best', avg=True)
 
-            epoch_t = (time.time() - epoch_start_t) / 60
-            self.output_backend.log_epoch_time(epoch_t, epoch, self.epochs)
+            # Only rank 0 logs epoch time
+            if not self.use_ddp or self.rank == 0:
+                epoch_t = (time.time() - epoch_start_t) / 60
+                self.output_backend.log_epoch_time(epoch_t, epoch, self.epochs)
 
-        self.output_backend.save_model_checkpoint(self.get_model_state_dict(), 'final',
-                                                  optimizer_state_dict=self.get_optimizer_state_dict())
-        if self.ema:
-            #self._update_avg_model_batch_norm(train_loaders)
-            self.output_backend.save_model_checkpoint(self.get_avg_model_state_dict(), 'final', avg=True)
+        # Synchronize before final model saving
+        if self.use_ddp:
+            dist.barrier()
+        
+        # Save final model (only rank 0)
+        if not self.use_ddp or self.rank == 0:
+            self.output_backend.save_model_checkpoint(self.get_model_state_dict(), 'final',
+                                                      optimizer_state_dict=self.get_optimizer_state_dict())
+            if self.ema:
+                #self._update_avg_model_batch_norm(train_loaders)
+                self.output_backend.save_model_checkpoint(self.get_avg_model_state_dict(), 'final', avg=True)
 
         if self.swa_epochs > 0:
             #first train for the desired number of cycle_length then start SWA
-            print(f'Starting Stochastic Weight averaging for {self.swa_epochs} epochs')
+            if not self.use_ddp or self.rank == 0:
+                print(f'Starting Stochastic Weight averaging for {self.swa_epochs} epochs')
             self._create_swa_optimizer_scheduler()
             self.scheduler.step(self.swa_virtual_schedule_swa_end - self.swa_cycle_length)
 
@@ -412,30 +464,56 @@ class TrainType:
                 #epoch is the total epoch of training, ranging from epochs to epochs + swa_epochs; used for loggig
                 epoch = self.epochs + swa_epoch
 
+                # Set epoch for distributed samplers if using DDP
+                if self.use_ddp:
+                    # Set epoch for training loaders
+                    for loader_name, loader in train_loaders.items():
+                        loader.sampler.set_epoch(epoch)
+
                 epoch_start_t = time.time()
                 self._inner_train(train_loaders, scheduler_epoch, log_epoch=epoch)
-                epoch_t = (time.time() - epoch_start_t) / 60
-                self.output_backend.log_epoch_time(epoch_t, epoch, self.epochs + self.swa_epochs)
+                
+                # Only rank 0 logs epoch time
+                if not self.use_ddp or self.rank == 0:
+                    epoch_t = (time.time() - epoch_start_t) / 60
+                    self.output_backend.log_epoch_time(epoch_t, epoch, self.epochs + self.swa_epochs)
 
                 #update the swa density_model every swa_update_frequency epochs
                 if ((swa_epoch + 1) % self.swa_update_frequency) == 0:
                     self._update_avg_model(device_ids)
 
                     if (swa_epoch / self.swa_epochs >= 0.8) | (swa_epoch % self.test_epochs == 0):
+                        # Synchronize before evaluation
+                        if self.use_ddp:
+                            dist.barrier()
+                        
                         new_best = self.test(test_loaders, epoch, False)
-                        state_dict = self.get_model_state_dict()
-                        if new_best:
-                            self.output_backend.save_model_checkpoint(state_dict, 'best_swa',
-                                                                      optimizer_state_dict=self.get_optimizer_state_dict())
+                        
+                        # Synchronize after evaluation and save best model (only rank 0)
+                        if self.use_ddp:
+                            dist.barrier()
+                        
+                        if not self.use_ddp or self.rank == 0:
+                            state_dict = self.get_model_state_dict()
+                            if new_best:
+                                self.output_backend.save_model_checkpoint(state_dict, 'best_swa',
+                                                                          optimizer_state_dict=self.get_optimizer_state_dict())
 
                         self._update_avg_model_batch_norm(train_loaders)
                         new_best = self.test(test_loaders, epoch, True)
-                        state_dict = self.get_avg_model_state_dict()
-                        if new_best:
-                            self.output_backend.save_model_checkpoint(state_dict, 'best_swa', avg=True)
+                        
+                        if not self.use_ddp or self.rank == 0:
+                            state_dict = self.get_avg_model_state_dict()
+                            if new_best:
+                                self.output_backend.save_model_checkpoint(state_dict, 'best_swa', avg=True)
 
+            # Synchronize before final SWA model saving
+            if self.use_ddp:
+                dist.barrier()
+            
             self._update_avg_model_batch_norm(train_loaders)
-            self.output_backend.save_model_checkpoint(self.get_model_state_dict(), 'final_swa', avg=True)
+            if not self.use_ddp or self.rank == 0:
+                self.output_backend.save_model_checkpoint(self.get_model_state_dict(), 'final_swa', avg=True)
 
         self.output_backend.close_backend()
         return self.output_backend.model_name

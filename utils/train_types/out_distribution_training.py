@@ -6,7 +6,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import torch.cuda.amp as amp
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -21,12 +20,14 @@ from .helpers import interleave_forward
 class OutDistributionTraining(TrainType):
     def __init__(self, name, model, od_distance, optimizer_config, epochs, device, num_classes, clean_criterion='ce',
                  lr_scheduler_config=None, msda_config=None, model_config=None, id_weight=1., od_weight=1.,
-                 test_epochs=5, verbose=100, saved_model_dir='SavedModels', saved_log_dir='Logs'):
+                 test_epochs=5, verbose=100, saved_model_dir='SavedModels', saved_log_dir='Logs',
+                 use_ddp=False, rank=None):
 
         super().__init__(name, model, optimizer_config, epochs, device, num_classes,
                          clean_criterion=clean_criterion, lr_scheduler_config=lr_scheduler_config,
                          msda_config=msda_config, model_config=model_config, test_epochs=test_epochs,
-                         verbose=verbose, saved_model_dir=saved_model_dir, saved_log_dir=saved_log_dir)
+                         verbose=verbose, saved_model_dir=saved_model_dir, saved_log_dir=saved_log_dir,
+                         use_ddp=use_ddp, rank=rank)
 
         self.id_weight = id_weight
         self.od_weight = od_weight
@@ -128,7 +129,7 @@ class OutDistributionTraining(TrainType):
                            distance_od=None):
 
         def loss_closure(log=False):
-            clean_out, od_out = interleave_forward(self.model, [clean_data, od_adv_samples], in_parallel=self.in_parallel)
+            clean_out, od_out = interleave_forward(self.model, [clean_data, od_adv_samples], in_parallel=False)
 
             loss1 = clean_loss(clean_data, clean_out, clean_data, clean_target)
             loss2 = od_train_criterion(od_adv_samples, od_out, od_data, od_target)
@@ -198,18 +199,16 @@ class OutDistributionTraining(TrainType):
 
             od_adv_samples = od_train_criterion.inner_max(od_data, od_target)
 
-            with amp.autocast(enabled=self.mixed_precision):
-                loss_closure = self.__get_loss_closure(clean_data, clean_target,
-                                   od_adv_samples, od_data, od_target,
-                                   clean_loss, od_train_criterion,
-                                   total_loss_logger=total_loss_logger,
-                                   lr_logger=lr_logger,
-                                   acc_conf_clean=acc_conf_clean,
+            loss_closure = self.__get_loss_closure(clean_data, clean_target,
+                               od_adv_samples, od_data, od_target,
+                               clean_loss, od_train_criterion,
+                               total_loss_logger=total_loss_logger,
+                               lr_logger=lr_logger,
+                               acc_conf_clean=acc_conf_clean,
                                    confidence_od=confidence_od,
                                    distance_od=distance_od)
 
-
-                self._loss_step(loss_closure)
+            self._loss_step(loss_closure)
             #ema
             if self.ema:
                 self._update_avg_model()
@@ -252,9 +251,8 @@ class OutDistributionTraining(TrainType):
                 od_data, od_target = od_data.to(self.device), od_target.to(self.device)
 
                 od_adv_samples = od_train_criterion.inner_max(od_data, od_target)
-                with amp.autocast(enabled=self.mixed_precision):
-                    loss_closure = self.__get_loss_closure(clean_data, clean_target,
-                                                           od_adv_samples, od_data, od_target,
-                                                           clean_loss, od_train_criterion)
+                loss_closure = self.__get_loss_closure(clean_data, clean_target,
+                                                       od_adv_samples, od_data, od_target,
+                                                       clean_loss, od_train_criterion)
 
-                    loss = loss_closure(log=False)
+                loss = loss_closure(log=False)

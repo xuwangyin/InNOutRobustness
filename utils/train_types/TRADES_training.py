@@ -44,14 +44,15 @@ class TRADESLoss(MinMaxLoss):
 class TRADESTraining(InDistributionTraining):
     def __init__(self, model, id_attack_config, optimizer_config, epochs, device, num_classes, trades_weight=1.,
                  lr_scheduler_config=None, model_config=None, test_epochs=1, verbose=100,
-                 saved_model_dir= 'SavedModels', saved_log_dir= 'Logs'):
+                 saved_model_dir= 'SavedModels', saved_log_dir= 'Logs', use_ddp=False, rank=None):
 
         distance = get_distance(id_attack_config['norm'])
 
         super().__init__('TRADES', model, distance, optimizer_config, epochs, device, num_classes,
                          train_clean=False, id_trades=True, clean_weight=1.0, id_adv_weight=trades_weight,
                          lr_scheduler_config=lr_scheduler_config, model_config=model_config, test_epochs=test_epochs,
-                         verbose=verbose, saved_model_dir= saved_model_dir, saved_log_dir=saved_log_dir)
+                         verbose=verbose, saved_model_dir= saved_model_dir, saved_log_dir=saved_log_dir,
+                         use_ddp=use_ddp, rank=rank)
 
         self.id_attack_config = id_attack_config
 

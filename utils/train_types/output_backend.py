@@ -9,16 +9,21 @@ from .train_loss import Log, LogType
 import time
 
 class OutputBackend:
-    def __init__(self, base_model_dir, log_dir, type_description, print_output=True, batch_update_interval=10):
+    def __init__(self, base_model_dir, log_dir, type_description, print_output=True, batch_update_interval=10, use_ddp=False, rank=None):
+        self.use_ddp = use_ddp
+        self.rank = rank
         self._create_model_dirs(base_model_dir, log_dir, type_description)
-        # Initialize wandb
-        import os
-        wandb_name = os.getenv('WANDB_NAME', self.model_name)
-        wandb.init(
-            project="InNOutRobustness",
-            name=wandb_name,
-            dir=self.writer_dir
-        )
+        
+        # Initialize wandb only on rank 0
+        if not self.use_ddp or self.rank == 0:
+            import os
+            wandb_name = os.getenv('WANDB_NAME', self.model_name)
+            wandb.init(
+                project="InNOutRobustness",
+                name=wandb_name,
+                dir=self.writer_dir
+            )
+        
         # Reset step counter to ensure epoch-based logging starts from 0
         self.epoch_t_average = 0
         self.epoch_t_N = 0
@@ -26,15 +31,18 @@ class OutputBackend:
         self.batch_update_interval = batch_update_interval
 
     def close_backend(self):
-        wandb.finish()
+        if not self.use_ddp or self.rank == 0:
+            wandb.finish()
         self._finalize_model_dirs()
 
     def log_epoch_time(self, epoch_t, epoch, total_epochs):
-        wandb.log({'EpochTime': epoch_t}, step=epoch)
+        if not self.use_ddp or self.rank == 0:
+            wandb.log({'EpochTime': epoch_t}, step=epoch)
+        
         self.epoch_t_average = self.epoch_t_average + (epoch_t - self.epoch_t_average) / min(self.epoch_t_N + 1, 5)
         self.epoch_t_N += 1
 
-        if self.print_output:
+        if self.print_output and (not self.use_ddp or self.rank == 0):
             estimate_remaining_time = (total_epochs - epoch - 1) * self.epoch_t_average
             print(f'Avg. epoch time {self.epoch_t_average:.3f}m - Remaining time {estimate_remaining_time:.3f}m')
 
@@ -55,7 +63,7 @@ class OutputBackend:
             else:
                 raise ValueError(f'{log.name} passed not supported type')
         
-        if log_dict:
+        if log_dict and (not self.use_ddp or self.rank == 0):
             wandb.log(log_dict, step=epoch)
 
     def write_losses(self, losses, epoch, train):
@@ -86,12 +94,16 @@ class OutputBackend:
 
     #start epoch log
     def start_epoch_log(self, total_batches):
-        self.pbar = tqdm(total=total_batches,  bar_format='{l_bar}{bar:5}{r_bar}{bar:-5b}')
+        if not self.use_ddp or self.rank == 0:
+            self.pbar = tqdm(total=total_batches,  bar_format='{l_bar}{bar:5}{r_bar}{bar:-5b}')
+        else:
+            self.pbar = None
 
     #end epoch log
     def end_epoch_log(self):
-        self.pbar.update(self.pbar.total - self.pbar.n)
-        self.pbar.close()
+        if self.pbar is not None:
+            self.pbar.update(self.pbar.total - self.pbar.n)
+            self.pbar.close()
 
     def log_batch_summary(self, epoch, batch_idx, train, losses=None, loggers=None):
         if (batch_idx % self.batch_update_interval) == 0:
@@ -118,52 +130,68 @@ class OutputBackend:
                             #ignore non scalar logs
                             pass
 
-            self.pbar.set_postfix_str(post_string)
-            self.pbar.set_description_str(pre_string)
-            self.pbar.update(n= batch_idx - self.pbar.n)
-            time.sleep(0.01)
+            if self.pbar is not None:
+                self.pbar.set_postfix_str(post_string)
+                self.pbar.set_description_str(pre_string)
+                self.pbar.update(n= batch_idx - self.pbar.n)
+                time.sleep(0.01)
 
 
     def _create_model_dirs(self, base_model_dir, log_dir, type_description):
-        created = False
-        while not created:
-            try:
-                date_stamp = datetime.now().strftime('%d-%m-%Y_%H:%M:%S')
-                self.model_name = f'{type_description}_{date_stamp}'
-                self.temp_dir = os.path.join(base_model_dir, f'_temp_{self.model_name}')
-                self.main_dir = os.path.join(base_model_dir, self.model_name)
-                self.writer_dir = os.path.join(log_dir, self.model_name)
-                self.checkpoints_dir = os.path.join(self.temp_dir, 'checkpoints')
-                pathlib.Path(self.temp_dir).mkdir(parents=True, exist_ok=False)
-                pathlib.Path(self.checkpoints_dir).mkdir(parents=True, exist_ok=False)
-                pathlib.Path(self.writer_dir).mkdir(parents=True, exist_ok=False)
-                created = True
-            except FileExistsError:
-                print(f'Warning: Directory {self.temp_dir} already exists')
-                time.sleep(1)
+        if not self.use_ddp or self.rank == 0:
+            # Only rank 0 creates directories
+            created = False
+            while not created:
+                try:
+                    date_stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    # Clean type description: remove spaces, convert to lowercase, keep only alphanumeric and underscores
+                    clean_type = ''.join(c.lower() if c.isalnum() else '_' for c in type_description)
+                    clean_type = '_'.join(filter(None, clean_type.split('_')))  # Remove empty strings from double underscores
+                    self.model_name = f'{clean_type}_{date_stamp}'
+                    self.temp_dir = os.path.join(base_model_dir, f'_temp_{self.model_name}')
+                    self.main_dir = os.path.join(base_model_dir, self.model_name)
+                    self.writer_dir = os.path.join(log_dir, self.model_name)
+                    self.checkpoints_dir = os.path.join(self.temp_dir, 'checkpoints')
+                    pathlib.Path(self.temp_dir).mkdir(parents=True, exist_ok=False)
+                    pathlib.Path(self.checkpoints_dir).mkdir(parents=True, exist_ok=False)
+                    pathlib.Path(self.writer_dir).mkdir(parents=True, exist_ok=False)
+                    created = True
+                except FileExistsError:
+                    print(f'Warning: Directory {self.temp_dir} already exists')
+                    time.sleep(1)
 
-        print(f'Model final dir: {self.main_dir} - temp dir {self.temp_dir}')
+            print(f'Model final dir: {self.main_dir} - temp dir {self.temp_dir}')
+        else:
+            # Other ranks don't need directories since they don't save
+            self.model_name = f'{type_description}_ddp_rank_{self.rank}'
+            self.temp_dir = None
+            self.main_dir = None  
+            self.writer_dir = None
+            self.checkpoints_dir = None
 
     def save_model_checkpoint(self, model_state_dict, epoch, optimizer_state_dict=None, avg=False):
-        if avg:
-            avg_postfix = '_avg'
-        else:
-            avg_postfix = ''
+        # Only rank 0 should save model checkpoints
+        if not self.use_ddp or self.rank == 0:
+            if avg:
+                avg_postfix = '_avg'
+            else:
+                avg_postfix = ''
 
-        if epoch in ['best', 'final', 'best_swa', 'final_swa']:
-            checkpoint_file = os.path.join(self.temp_dir, f'{epoch}{avg_postfix}.pth')
-            optimizer_file = os.path.join(self.temp_dir, f'{epoch}_optim.pth')
-        else:
-            checkpoint_file = os.path.join(self.checkpoints_dir, f'{epoch}{avg_postfix}.pth')
-            optimizer_file = os.path.join(self.checkpoints_dir, f'{epoch}_optim.pth')
+            if epoch in ['best', 'final', 'best_swa', 'final_swa']:
+                checkpoint_file = os.path.join(self.temp_dir, f'{epoch}{avg_postfix}.pth')
+                optimizer_file = os.path.join(self.temp_dir, f'{epoch}_optim.pth')
+            else:
+                checkpoint_file = os.path.join(self.checkpoints_dir, f'{epoch}{avg_postfix}.pth')
+                optimizer_file = os.path.join(self.checkpoints_dir, f'{epoch}_optim.pth')
 
-        torch.save(model_state_dict, checkpoint_file)
+            torch.save(model_state_dict, checkpoint_file)
 
-        if optimizer_state_dict is not None:
-            torch.save(optimizer_state_dict, optimizer_file)
+            if optimizer_state_dict is not None:
+                torch.save(optimizer_state_dict, optimizer_file)
 
     def _finalize_model_dirs(self):
-        os.rename(self.temp_dir, self.main_dir)
+        if not self.use_ddp or self.rank == 0:
+            os.rename(self.temp_dir, self.main_dir)
 
     @staticmethod
     def _create_dict_markdown_text(config_dict, text, indent_level=0):
@@ -205,11 +233,12 @@ class OutputBackend:
 
 
     def save_model_configs(self, configs):
-        out_file = os.path.join(self.temp_dir, 'config.txt')
-        with open(out_file, 'w') as fileID:
-            OutputBackend._save_dict_to_txt(configs, fileID)
+        if not self.use_ddp or self.rank == 0:
+            out_file = os.path.join(self.temp_dir, 'config.txt')
+            with open(out_file, 'w') as fileID:
+                OutputBackend._save_dict_to_txt(configs, fileID)
 
-        markdown_text = OutputBackend._create_dict_markdown_text(configs, '')
-        wandb.log({"config": wandb.Html(markdown_text)}, step=0)
+            markdown_text = OutputBackend._create_dict_markdown_text(configs, '')
+            wandb.log({"config": wandb.Html(markdown_text)}, step=0)
 
 

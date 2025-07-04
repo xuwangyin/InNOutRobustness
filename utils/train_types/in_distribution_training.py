@@ -6,19 +6,20 @@ from .train_type import TrainType
 from .train_loss import AccuracyConfidenceLogger, DistanceLogger, SingleValueLogger
 
 from .helpers import interleave_forward
-import torch.cuda.amp as amp
 
 #Base class for train types that use custom losses/attacks on the in distribution such as adversarial training
 class InDistributionTraining(TrainType):
     def __init__(self, name, model, id_distance, optimizer_config, epochs, device, num_classes,
                  clean_criterion='ce', train_clean=True, id_trades=False, clean_weight=1.0, id_adv_weight=1.0,
                  lr_scheduler_config=None, msda_config=None, model_config=None,
-                 test_epochs=1, verbose=100, saved_model_dir='SavedModels', saved_log_dir='Logs'):
+                 test_epochs=1, verbose=100, saved_model_dir='SavedModels', saved_log_dir='Logs',
+                 use_ddp=False, rank=None):
         super().__init__(name, model, optimizer_config, epochs, device, num_classes,
                          clean_criterion=clean_criterion,
                          lr_scheduler_config=lr_scheduler_config, msda_config=msda_config,
                          model_config=model_config, test_epochs=test_epochs,
-                         verbose=verbose, saved_model_dir=saved_model_dir, saved_log_dir=saved_log_dir)
+                         verbose=verbose, saved_model_dir=saved_model_dir, saved_log_dir=saved_log_dir,
+                         use_ddp=use_ddp, rank=rank)
 
         self.train_clean = train_clean
         self.id_trades = id_trades
@@ -195,17 +196,16 @@ class InDistributionTraining(TrainType):
                 continue
 
             id_adv_samples = id_train_criterion.inner_max(id_data, id_target)
-            with amp.autocast(enabled=self.mixed_precision):
-                loss_closure = self.__get_loss_closure(clean_data, clean_target, id_adv_samples, id_data, id_target,
-                                                       clean_loss, id_train_criterion,
-                                                       total_loss_logger=total_loss_logger,
-                                                       lr_logger=lr_logger,
-                                                       acc_conf_clean=acc_conf_clean,
-                                                       acc_conf_adv=acc_conf_adv,
-                                                       distance_adv=distance_adv
-                                                       )
+            loss_closure = self.__get_loss_closure(clean_data, clean_target, id_adv_samples, id_data, id_target,
+                                                   clean_loss, id_train_criterion,
+                                                   total_loss_logger=total_loss_logger,
+                                                   lr_logger=lr_logger,
+                                                   acc_conf_clean=acc_conf_clean,
+                                                   acc_conf_adv=acc_conf_adv,
+                                                   distance_adv=distance_adv
+                                                   )
 
-                self._loss_step(loss_closure)
+            self._loss_step(loss_closure)
 
             #ema
             if self.ema:
@@ -252,9 +252,8 @@ class InDistributionTraining(TrainType):
                         continue
 
                 id_adv_samples = id_train_criterion.inner_max(id_data, id_target)
-                with amp.autocast(enabled=self.mixed_precision):
-                    loss_closure = self.__get_loss_closure(clean_data, clean_target, id_adv_samples, id_data, id_target,
-                                                           clean_loss, id_train_criterion)
+                loss_closure = self.__get_loss_closure(clean_data, clean_target, id_adv_samples, id_data, id_target,
+                                                       clean_loss, id_train_criterion)
 
-                    loss_closure(log=False)
+                loss_closure(log=False)
 

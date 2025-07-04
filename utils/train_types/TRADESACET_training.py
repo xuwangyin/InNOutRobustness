@@ -19,7 +19,8 @@ class TRADESACETTraining(InOutDistributionTraining):
     def __init__(self, model, id_attack_config, od_attack_config, optimizer_config, epochs, device, num_classes,
                  trades_weight=1, lr_scheduler_config=None,
                  acet_obj='kl', od_weight=1., model_config=None,
-                 test_epochs=1, verbose=100, saved_model_dir= 'SavedModels', saved_log_dir= 'Logs'):
+                 test_epochs=1, verbose=100, saved_model_dir= 'SavedModels', saved_log_dir= 'Logs',
+                 use_ddp=False, rank=None):
 
         id_distance = get_distance(id_attack_config['norm'])
         od_distance = get_distance(od_attack_config['norm'])
@@ -30,7 +31,8 @@ class TRADESACETTraining(InOutDistributionTraining):
                          od_trades=False, od_weight=0.5 * od_weight, od_clean_weight=0.0, od_adv_weight=1.0,
                           lr_scheduler_config=lr_scheduler_config,
                           model_config=model_config, test_epochs=test_epochs,
-                          verbose=verbose, saved_model_dir=saved_model_dir, saved_log_dir=saved_log_dir)
+                          verbose=verbose, saved_model_dir=saved_model_dir, saved_log_dir=saved_log_dir,
+                          use_ddp=use_ddp, rank=rank)
 
         #Trades
         self.id_attack_config = id_attack_config

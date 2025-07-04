@@ -29,7 +29,7 @@ class RandomizedSmoothingTraining(InDistributionTraining):
     def __init__(self, model, optimizer_config, epochs, device, num_classes, noise_scales, train_clean=True,
                  lr_scheduler_config=None, model_config=None,
                  test_epochs=1, verbose=100, saved_model_dir='SavedModels',
-                 saved_log_dir='Logs'):
+                 saved_log_dir='Logs', use_ddp=False, rank=None):
 
         distance = get_distance('l2')
         self.noise_scales = noise_scales
@@ -37,7 +37,7 @@ class RandomizedSmoothingTraining(InDistributionTraining):
         super().__init__('RandomizedSmoothing', model, distance, optimizer_config, epochs, device, num_classes,
                          train_clean=train_clean, lr_scheduler_config=lr_scheduler_config, model_config=model_config,
                          test_epochs=test_epochs, verbose=verbose, saved_model_dir=saved_model_dir,
-                         saved_log_dir=saved_log_dir)
+                         saved_log_dir=saved_log_dir, use_ddp=use_ddp, rank=rank)
 
 
     def _get_id_criterion(self, epoch, model, name_prefix='ID'):
