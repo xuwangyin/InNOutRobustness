@@ -295,6 +295,10 @@ def train_worker(rank, world_size, args):
         epoch_time = time.time() - start_time
         train_acc = correct_tensor.item() / total_tensor.item()
         avg_train_loss = train_loss_tensor.item() / len(train_loader)
+
+        if rank == 0:
+            print(f'Epoch {epoch+1}/{args.epochs} completed in {epoch_time:.2f}s')
+            print(f'Train Loss: {avg_train_loss:.6f} | Train Acc: {train_acc:.2f}%')
         
         # Evaluation phase - balanced sampling (only on rank 0)
         model.eval()
@@ -367,8 +371,6 @@ def train_worker(rank, world_size, args):
         
         # Print epoch results (only on rank 0)
         if rank == 0:
-            print(f'Epoch {epoch+1}/{args.epochs} completed in {epoch_time:.2f}s')
-            print(f'Train Loss: {avg_train_loss:.6f} | Train Acc: {train_acc:.2f}%')
             print(f'Test Loss (Balanced): {avg_test_loss_balanced:.6f} | Test Acc (Balanced): {test_acc_balanced:.2f}%')
             print(f'Test Loss (Natural): {avg_test_loss_natural:.6f} | Test Acc (Natural): {test_acc_natural:.2f}%')
             print(f'Learning Rate: {scheduler.get_last_lr()[0]:.6f}')

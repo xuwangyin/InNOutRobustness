@@ -207,7 +207,7 @@ def main():
             data_load_time = time.time() - data_load_start
             
             # Move to device
-            data, target = data.to(device), target.to(device)
+            data, target = data.to(device, non_blocking=True), target.to(device, non_blocking=True)
             
             # Log training images once
             train_images_logged = log_images_once(data, target, "Training", train_images_logged)
@@ -255,7 +255,7 @@ def main():
         
         with torch.no_grad():
             for data, target in test_loader_balanced:
-                data, target = data.to(device), target.to(device)
+                data, target = data.to(device, non_blocking=True), target.to(device, non_blocking=True)
                 
                 # Log test images once
                 test_images_logged = log_images_once(data, target, "Test", test_images_logged)
@@ -268,6 +268,8 @@ def main():
         
         test_acc_balanced = correct_balanced / total_balanced
         avg_test_loss_balanced = test_loss_balanced / len(test_loader_balanced)
+        print(f'Epoch {epoch+1}/{args.epochs} completed in {epoch_time:.2f}s')
+        print(f'Train Loss: {avg_train_loss:.6f} | Train Acc: {train_acc:.2f}%')
         
         # Evaluation phase - natural sampling
         test_loss_natural = 0.0
@@ -276,7 +278,7 @@ def main():
         
         with torch.no_grad():
             for data, target in test_loader_natural:
-                data, target = data.to(device), target.to(device)
+                data, target = data.to(device, non_blocking=True), target.to(device, non_blocking=True)
                 
                 output = model(data)
                 test_loss_natural += criterion(output, target).item()
@@ -301,8 +303,6 @@ def main():
         }, step=epoch)
         
         # Print epoch results
-        print(f'Epoch {epoch+1}/{args.epochs} completed in {epoch_time:.2f}s')
-        print(f'Train Loss: {avg_train_loss:.6f} | Train Acc: {train_acc:.2f}%')
         print(f'Test Loss (Balanced): {avg_test_loss_balanced:.6f} | Test Acc (Balanced): {test_acc_balanced:.2f}%')
         print(f'Test Loss (Natural): {avg_test_loss_natural:.6f} | Test Acc (Natural): {test_acc_natural:.2f}%')
         print(f'Learning Rate: {scheduler.get_last_lr()[0]:.6f}')

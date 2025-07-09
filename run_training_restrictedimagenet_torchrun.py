@@ -5,10 +5,8 @@ import os
 import torch
 import torch.nn as nn
 import torch.distributed as dist
-import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
-import random
 
 from utils.model_normalization import RestrictedImageNetWrapper
 import utils.datasets as dl
@@ -18,39 +16,22 @@ from distutils.util import strtobool
 
 import argparse
 
+def main_training(hps):
+    dist.init_process_group(backend='nccl')
 
-def setup(rank, world_size, master_port):
-    """Initialize the distributed environment."""
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = str(master_port)
+    # Get rank and world_size from torchrun environment
+    rank = dist.get_rank()
+    world_size = dist.get_world_size()
     
-    # Initialize the process group
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-
-
-def cleanup():
-    """Clean up the distributed environment."""
-    dist.destroy_process_group()
-
-
-def train_worker(rank, world_size, hps, master_port):
-    """Training worker for each GPU."""
+    # Assert that world_size * batch_size equals 128
+    assert world_size * hps.bs == 128, f"world_size ({world_size}) * batch_size ({hps.bs}) must equal 128, got {world_size * hps.bs}"
+    
     print(f'Running DDP on rank {rank}.')
-    setup(rank, world_size, master_port)
     
     # Set device for this process
     torch.cuda.set_device(rank)
     device = torch.device(f'cuda:{rank}')
     
-    # Call the main training function
-    main_training(hps, rank, world_size, device)
-    
-    # Clean up
-    cleanup()
-
-
-def main_training(hps, rank=None, world_size=None, device=None):
-    # Worker process, use passed hps (rank is never None in DDP mode)
     device_ids = None
 
     # Load model
@@ -171,52 +152,29 @@ def main_training(hps, rank=None, world_size=None, device=None):
         trainer.train(train_loaders, test_loaders, loader_config=loader_config, start_epoch=start_epoch,
                       optim_state_dict=optim_state_dict, device_ids=device_ids)
 
+    dist.destroy_process_group()
+
 
 def main():
-    """Main function to launch DDP training."""
-    # Parse arguments for DDP setup
-    parser = argparse.ArgumentParser(description='RestrictedImageNet DDP Training Script')
-    parser.add_argument('--world_size', type=int, default=None, help='Number of GPUs for DDP (default: all available)')
-    
-    # Parse only DDP-specific args first
-    ddp_args, remaining_args = parser.parse_known_args()
-    
-    # Get number of available GPUs
-    world_size = ddp_args.world_size if ddp_args.world_size is not None else torch.cuda.device_count()
-    if world_size < 2:
-        raise RuntimeError(f"DDP requires at least 2 GPUs, but only {world_size} available")
-    
-    if world_size > 0:
-        print(f'Starting DDP training on {world_size} GPUs')
-    
-    # Create a temporary parser to get the full hps
-    temp_parser = argparse.ArgumentParser(description='Define hyperparameters.', prefix_chars='-')
-    temp_parser.add_argument('--net', type=str, default='resnet50_timm', help='ResNet18, 34, 50 or 101')
-    temp_parser.add_argument('--model_params', nargs='+', default=[])
-    temp_parser.add_argument('--dataset', type=str, default='restrictedimagenet', help='restrictedimagenet')
-    temp_parser.add_argument('--od_dataset', type=str, default='restrictedimagenetOD',
+    """Main function for torchrun DDP training."""
+    # Parse arguments
+    parser = argparse.ArgumentParser(description='RestrictedImageNet torchrun DDP Training Script')
+    parser.add_argument('--net', type=str, default='resnet50_timm', help='ResNet18, 34, 50 or 101')
+    parser.add_argument('--model_params', nargs='+', default=[])
+    parser.add_argument('--dataset', type=str, default='restrictedimagenet', help='restrictedimagenet')
+    parser.add_argument('--od_dataset', type=str, default='restrictedimagenetOD',
                         help=('restrictedimagenetOD, imagenet or openImages'))
-    temp_parser.add_argument('--task', type=str, default='RestrictedImageNet',
+    parser.add_argument('--task', type=str, default='RestrictedImageNet',
                         help='Task name used for model and log directory naming')
-    temp_parser.add_argument('--world_size', type=int, default=None, help='Number of GPUs for DDP (default: all available)')
     
-    rh.parser_add_commons(temp_parser)
-    rh.parser_add_adversarial_commons(temp_parser)
-    rh.parser_add_adversarial_norms(temp_parser, 'restrictedimagenet')
+    rh.parser_add_commons(parser)
+    rh.parser_add_adversarial_commons(parser)
+    rh.parser_add_adversarial_norms(parser, 'restrictedimagenet')
     
-    hps = temp_parser.parse_args()
+    hps = parser.parse_args()
     
-    # Assert that world_size * batch_size equals 128
-    assert world_size * hps.bs == 128, f"world_size ({world_size}) * batch_size ({hps.bs}) must equal 128, got {world_size * hps.bs}"
-    
-    # Initialize master port once in main process
-    master_port = random.randint(10000, 65535)
-    
-    # Spawn processes for each GPU
-    mp.spawn(train_worker,
-             args=(world_size, hps, master_port),
-             nprocs=world_size,
-             join=True)
+    # Call main training function
+    main_training(hps)
 
 
 if __name__ == '__main__':
