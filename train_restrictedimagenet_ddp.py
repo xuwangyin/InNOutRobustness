@@ -8,7 +8,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.distributed as dist
-import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 import argparse
@@ -25,20 +24,6 @@ import utils.models.model_factory_224 as factory
 import utils.run_file_helpers as rh
 
 
-def setup(rank, world_size):
-    """Initialize the distributed environment."""
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
-    
-    # Initialize the process group
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-
-
-def cleanup():
-    """Clean up the distributed environment."""
-    dist.destroy_process_group()
-
-
 def reduce_tensor(tensor, world_size):
     """Reduce tensor across all processes."""
     rt = tensor.clone().float()
@@ -47,14 +32,19 @@ def reduce_tensor(tensor, world_size):
     return rt
 
 
-def train_worker(rank, world_size, args):
+def train_worker(args):
     """Training worker for each GPU."""
-    print(f'Running DDP on rank {rank}.')
-    setup(rank, world_size)
+    # Get rank and world size from environment variables set by torchrun
+    rank = int(os.environ['RANK'])
+    local_rank = int(os.environ['LOCAL_RANK'])
+    world_size = int(os.environ['WORLD_SIZE'])
+    
+    print(f'Running DDP on rank {rank}, local_rank {local_rank}.')
+    dist.init_process_group("nccl")
     
     # Set device for this process
-    torch.cuda.set_device(rank)
-    device = torch.device(f'cuda:{rank}')
+    torch.cuda.set_device(local_rank)
+    device = torch.device(f'cuda:{local_rank}')
     
     # Model setup
     model_root_dir = 'RestrictedImageNetModels'
@@ -80,7 +70,7 @@ def train_worker(rank, world_size, args):
     model = RestrictedImageNetWrapper(model).to(device)
     
     # Wrap model with DDP
-    model = DDP(model, device_ids=[rank])
+    model = DDP(model, device_ids=[local_rank])
     
     # Dataset setup
     id_config = {}
@@ -399,7 +389,7 @@ def train_worker(rank, world_size, args):
         print('Training completed!')
     
     # Clean up
-    cleanup()
+    dist.destroy_process_group()
 
 
 def main():
@@ -429,22 +419,13 @@ def main():
     
     # Set optimal number of workers if not specified
     if args.num_workers is None:
-        args.num_workers = min(os.cpu_count() // torch.cuda.device_count(), 8)  # Divide by number of GPUs
+        world_size = int(os.environ.get('WORLD_SIZE', '1'))
+        args.num_workers = min(os.cpu_count() // world_size, 8)  # Divide by number of processes
     
     print(f'Using {args.num_workers} data loading workers per GPU')
     
-    # Get number of available GPUs
-    world_size = torch.cuda.device_count()
-    if world_size < 2:
-        raise RuntimeError(f"DDP requires at least 2 GPUs, but only {world_size} available")
-    
-    print(f'Starting DDP training on {world_size} GPUs')
-    
-    # Spawn processes for each GPU
-    mp.spawn(train_worker,
-             args=(world_size, args),
-             nprocs=world_size,
-             join=True)
+    # Start training (torchrun handles process spawning)
+    train_worker(args)
 
 
 if __name__ == '__main__':
