@@ -29,13 +29,12 @@ class AdversarialTraining(InDistributionTraining):
     def __init__(self, model, id_attack_config, optimizer_config, epochs, device, num_classes, train_clean=True,
                 attack_loss='logits_diff', lr_scheduler_config=None, model_config=None,
                  test_epochs=1, verbose=100, saved_model_dir='SavedModels',
-                 saved_log_dir='Logs', use_ddp=False, rank=None):
+                 saved_log_dir='Logs', use_ddp=False, rank=None, clean_weight=0.5):
 
         distance = get_distance(id_attack_config['norm'])
 
         if train_clean:
-            clean_weight = 0.5
-            adv_weight = 0.5
+            adv_weight = 1.0 - clean_weight
         else:
             clean_weight = 0.0
             adv_weight = 1.0

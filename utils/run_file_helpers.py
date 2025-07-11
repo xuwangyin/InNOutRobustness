@@ -71,6 +71,7 @@ def parser_add_adversarial_commons(parser):
     parser.add_argument('--od_weight', type=float, default=1., help='Weight for out-distribution term in ACET (derivates)')
     parser.add_argument('--trades_weight', type=float, default=6., help='Weight for TRADES term in TRADES (derivates)')
     parser.add_argument('--od_trades_weight', type=float, default=6., help='Weight for OD-TRADES term')
+    parser.add_argument('--clean_weight', type=float, default=0.5, help='Weight for clean loss in training (id_adv_weight = 1 - clean_weight)')
     parser.add_argument('--train_clean', dest='train_clean', type=lambda x: bool(strtobool(x)),
                         default=False, help='Train on additional clean data or purely adversarial')
     parser.add_argument('--norm', type=str, default='l2',
@@ -305,7 +306,7 @@ def create_trainer(hps, model, optimizer_config, scheduler_config, device, num_c
                                          train_clean=hps.train_clean, attack_loss=hps.adv_obj,
                                          lr_scheduler_config=scheduler_config, model_config=model_config,
                                          saved_model_dir=model_dir, saved_log_dir=log_dir, test_epochs=hps.test_epochs,
-                                         use_ddp=use_ddp, rank=rank)
+                                         use_ddp=use_ddp, rank=rank, clean_weight=hps.clean_weight)
     elif hps.train_type.lower() in ['trades']:
         trainer = tt.TRADESTraining(model, id_attack_config, optimizer_config, hps.epochs, device, num_classes,
                                     lr_scheduler_config=scheduler_config, model_config=model_config,
@@ -319,7 +320,7 @@ def create_trainer(hps, model, optimizer_config, scheduler_config, device, num_c
                                      lr_scheduler_config=scheduler_config, model_config=model_config,
                                      train_obj=hps.ceda_obj, attack_obj=hps.ceda_obj, od_weight=hps.od_weight,
                                      saved_model_dir=model_dir, saved_log_dir=log_dir, test_epochs=hps.test_epochs,
-                                     use_ddp=use_ddp, rank=rank)
+                                     use_ddp=use_ddp, rank=rank, clean_weight=hps.clean_weight)
     elif hps.train_type.lower()  == 'tradesacet':
         trainer = tt.TRADESACETTraining(model, id_attack_config, od_attack_config, optimizer_config, hps.epochs, device,
                                         num_classes, trades_weight=hps.trades_weight,

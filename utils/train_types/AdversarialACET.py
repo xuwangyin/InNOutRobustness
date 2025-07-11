@@ -19,14 +19,14 @@ class AdversarialACET(InOutDistributionTraining):
                  attack_loss='LogitsDiff', lr_scheduler_config=None, model_config=None,
                  target_confidences=False,
                  attack_obj='log_conf', train_obj='log_conf', od_weight=1., test_epochs=1, verbose=100,
-                 saved_model_dir='SavedModels', saved_log_dir='Logs', use_ddp=False, rank=None):
+                 saved_model_dir='SavedModels', saved_log_dir='Logs', use_ddp=False, rank=None, clean_weight=0.5):
 
         id_distance = get_distance(id_attack_config['norm'])
         od_distance = get_distance(od_attack_config['norm'])
 
         if train_clean:
-            id_clean_weight = 1.0
-            id_adv_weight = 1.0
+            id_clean_weight = clean_weight
+            id_adv_weight = 1.0 - clean_weight
         else:
             id_clean_weight = 0.0
             id_adv_weight = 1.0
