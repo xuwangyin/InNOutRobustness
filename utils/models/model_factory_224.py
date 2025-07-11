@@ -1,5 +1,4 @@
 from timm.models import create_model
-from resnet import resnet50, wide_resnet50_2
 from utils.models.model_factory_32 import parse_params
 
 def build_model(model_name, num_classes, model_params=None, **kwargs):
@@ -15,9 +14,6 @@ def build_model(model_name, num_classes, model_params=None, **kwargs):
         model = create_model('resnet50', num_classes=num_classes, **model_config)
     elif model_name == 'wide_resnet50_2':
         model_name = 'WideResNet_50_2'
-        model = wide_resnet50_2(num_classes=num_classes)
-    elif model_name == 'wide_resnet50_2_timm':
-        model_name = 'WideResNet_50_2_timm'
         model = create_model('wide_resnet50_2', num_classes=num_classes, **model_config)
     elif model_name == 'tresnetm':
         model_name = 'TResNet-M'
