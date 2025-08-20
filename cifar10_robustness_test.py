@@ -40,8 +40,8 @@ parser.add_argument('--temperature', type=float, default=None,
                     help='Temperature for softmax (default: None)')
 parser.add_argument('--load_temp', action='store_true', default=False,
                     help='Load temperature from checkpoint if available')
-parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'cifar100', 'restrictedimagenet'],
-                    help='Dataset to use for testing (cifar10, cifar100, or restrictedimagenet)')
+parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'cifar100', 'restrictedimagenet', 'imagenet'],
+                    help='Dataset to use for testing (cifar10, cifar100, restrictedimagenet, or imagenet)')
 parser.add_argument('--distance_type', type=str, default='L2', choices=['L2', 'Linf'],
                     help='Distance type for adversarial attacks (L2 or Linf)')
 parser.add_argument('--eps', type=float, default=0.5,
@@ -62,7 +62,7 @@ else:
     device = torch.device('cuda:' + str(min(device_ids)))
     num_devices = len(device_ids)
 
-ROBUSTNESS_DATAPOINTS = 10_000
+ROBUSTNESS_DATAPOINTS = 100_000
 dataset = hps.dataset
 
 if hps.dataset == 'restrictedimagenet':
@@ -78,9 +78,11 @@ if hps.eps is None:
         hps.eps = 0.5
     elif dataset == 'restrictedimagenet':
         hps.eps = 3.5
+    elif dataset == 'imagenet':
+        hps.eps = 3.0
     print(f"Using default epsilon value of {hps.eps} for {dataset}")
 
-bs = 500 * num_devices
+bs = 1000 * num_devices
 
 print(f'Testing on {ROBUSTNESS_DATAPOINTS} points from {dataset.upper()} dataset')
 
@@ -118,6 +120,8 @@ for model_idx, (type, folder, checkpoint, temperature, temp) in enumerate(model_
         dataloader = dl.get_CIFAR100(False, batch_size=bs, augm_type='none')
     elif dataset == 'restrictedimagenet':
         dataloader = dl.get_restrictedImageNet(train=False, augm_type=restrictedimagenet_augm_type, batch_size=bs, balanced=False)
+    elif dataset == 'imagenet':
+        dataloader = dl.get_ImageNet(train=False, batch_size=bs, augm_type='test')
     else:
         raise NotImplementedError()
 
@@ -130,7 +134,7 @@ for model_idx, (type, folder, checkpoint, temperature, temp) in enumerate(model_
             _, pred = torch.max(out, dim=1)
             acc += torch.sum(pred == target).item() / len(dataloader.dataset)
 
-    print(f'Clean accuracy {acc}')
+    print(f'Clean accuracy {acc} (balanced=False)')
 
     if dataset == 'cifar10':
         dataloader = dl.get_CIFAR10(False, batch_size=ROBUSTNESS_DATAPOINTS, augm_type='none')
@@ -138,6 +142,8 @@ for model_idx, (type, folder, checkpoint, temperature, temp) in enumerate(model_
         dataloader = dl.get_CIFAR100(False, batch_size=ROBUSTNESS_DATAPOINTS, augm_type='none')
     elif dataset == 'restrictedimagenet':
         dataloader = dl.get_restrictedImageNet(train=False, augm_type=restrictedimagenet_augm_type, batch_size=ROBUSTNESS_DATAPOINTS, balanced=True)
+    elif dataset == 'imagenet':
+        dataloader = dl.get_ImageNet(train=False, batch_size=ROBUSTNESS_DATAPOINTS, augm_type='test')
     else:
         raise NotImplementedError()
     
@@ -153,6 +159,8 @@ for model_idx, (type, folder, checkpoint, temperature, temp) in enumerate(model_
         num_classes = 100
     elif dataset == 'restrictedimagenet':
         num_classes = 9  # RestrictedImageNet has 9 classes
+    elif dataset == 'imagenet':
+        num_classes = 1000  # ImageNet has 1000 classes
     else:
         raise NotImplementedError(f"Number of classes not defined for dataset: {dataset}")
     
