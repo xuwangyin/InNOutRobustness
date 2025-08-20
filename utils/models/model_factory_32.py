@@ -68,10 +68,10 @@ def build_model(model_name, num_classes, model_params=None):
         model = WideResNet34x20(num_classes=num_classes)
         model_name = 'WideResNet34x20'
     elif model_name == 'wideresnet40x10':
-        model = WideResNet40x10(num_classes=num_classes)
+        model = WideResNet40x10(num_classes=num_classes, **model_config)
         model_name = 'WideResNet40x10'
     elif model_name == 'wideresnet70x16':
-        model = WideResNet70x16(num_classes=num_classes)
+        model = WideResNet70x16(num_classes=num_classes, **model_config)
         model_name = 'WideResNet70x16'
     elif model_name == 'vit-b16':
         model = create_model('vit_base_patch16_224_in21k', num_classes=num_classes, pretrained=True)
