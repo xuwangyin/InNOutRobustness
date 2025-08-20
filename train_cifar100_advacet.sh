@@ -1,0 +1,1 @@
+python -u run_training_cifar100.py --gpu 0 --net wideresnet34x10 --augm autoaugment_cutout --id_steps 10 --od_steps 20 --train_type advacet --epochs 300 --ema True --ema_decay 0.999 --test_epochs 5 --dataset cifar100 --schedule cosine --eps 0.5 --od_eps_factor 2 2>&1 | tee train_cifar100_advacet.log
