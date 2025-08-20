@@ -10,6 +10,10 @@ from torch.utils.data.distributed import DistributedSampler
 
 from utils.model_normalization import RestrictedImageNetWrapper
 import utils.datasets as dl
+from utils.datasets.imagenet_subsets import RestrictedImageNetOD
+from utils.datasets.imagenet_subsets import RestrictedImageNet
+from utils.datasets.augmentations.imagenet_augmentation import get_imageNet_augmentation
+from utils.datasets.paths import get_imagenet_path
 import utils.models.model_factory_224 as factory
 import utils.run_file_helpers as rh
 from distutils.util import strtobool
@@ -66,9 +70,6 @@ def main_training(hps):
     assert hps.dataset == 'restrictedImagenet', f'Dataset {hps.dataset} not supported'
     
     # Create dataset and sampler manually for DDP
-    from utils.datasets.imagenet_subsets import RestrictedImageNet
-    from utils.datasets.augmentations.imagenet_augmentation import get_imageNet_augmentation
-    from utils.datasets.paths import get_imagenet_path
     
     augm_config = {}
     train_transform = get_imageNet_augmentation(type=hps.augm, out_size=img_size, config_dict=augm_config)
@@ -96,17 +97,38 @@ def main_training(hps):
         id_config['Augmentation'] = augm_config
 
     if hps.train_type.lower() in ['ceda', 'acet', 'advacet', 'tradesacet', 'tradesceda']:
-        assert False, 'in-distribution training only for now'
+        # assert False, 'in-distribution training only for now'
         od_config = {}
         loader_config = {'ID config': id_config, 'OD config': od_config}
 
         if hps.od_dataset == 'restrictedimagenetOD':
-            tiny_train = dl.get_restrictedImageNetOD(batch_size=od_bs, augm_type=hps.augm, size=img_size,
-                                                    config_dict=od_config)
+            # Create dataset and distributed sampler
+            od_dataset = RestrictedImageNetOD(path, split='train', transform=train_transform)
+            
+            od_sampler = DistributedSampler(
+                od_dataset,
+                num_replicas=world_size,
+                rank=rank,
+                shuffle=True
+            )
+            
+            tiny_train = torch.utils.data.DataLoader(
+                od_dataset, 
+                batch_size=hps.bs,
+                sampler=od_sampler, 
+                num_workers=8
+            )
+            
+            if od_config is not None:
+                od_config['Dataset'] = 'RestrictedImageNetOD'
+                od_config['Batch out_size'] = od_bs
+                od_config['Augmentation'] = augm_config
         elif hps.od_dataset == 'imagenet':
+            assert False, 'imagenet not supported'
             tiny_train = dl.get_ImageNet(train=True, batch_size=od_bs, augm_type=hps.augm, size=img_size,
                                         exclude_restricted=True, config_dict=od_config)
         elif hps.od_dataset == 'openImages':
+            assert False, 'openImages not supported'
             tiny_train = dl.get_openImages('train', batch_size=od_bs, shuffle=True, augm_type=hps.augm, 
                                          size=img_size, exclude_dataset='restrictedimagenet', config_dict=od_config)
         else:
