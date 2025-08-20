@@ -8,8 +8,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torch.cuda.amp as amp
 
-from torch.utils.tensorboard import SummaryWriter
-
 import time
 
 from .train_type import TrainType
