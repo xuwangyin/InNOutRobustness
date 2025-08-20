@@ -24,6 +24,8 @@ class OutputBackend:
         self.epoch_t_N = 0
         self.print_output = print_output
         self.batch_update_interval = batch_update_interval
+        wandb.config.update({"model_final_dir": self.main_dir})
+        wandb.config.update({"model_temp_dir": self.temp_dir})
 
     def close_backend(self):
         wandb.finish()
@@ -209,7 +211,6 @@ class OutputBackend:
         with open(out_file, 'w') as fileID:
             OutputBackend._save_dict_to_txt(configs, fileID)
 
-        markdown_text = OutputBackend._create_dict_markdown_text(configs, '')
-        wandb.log({"config": wandb.Html(markdown_text)}, step=0)
+        wandb.config.update(configs)
 
 
