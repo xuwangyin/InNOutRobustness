@@ -38,6 +38,8 @@ def train_worker(args):
     rank = int(os.environ['RANK'])
     local_rank = int(os.environ['LOCAL_RANK'])
     world_size = int(os.environ['WORLD_SIZE'])
+
+    assert world_size * args.bs == 128
     
     print(f'Running DDP on rank {rank}, local_rank {local_rank}.')
     dist.init_process_group("nccl")
