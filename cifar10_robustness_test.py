@@ -46,6 +46,8 @@ parser.add_argument('--distance_type', type=str, default='L2', choices=['L2', 'L
                     help='Distance type for adversarial attacks (L2 or Linf)')
 parser.add_argument('--eps', type=float, default=0.5,
                     help='Epsilon value for adversarial attacks (default: 0.5 for CIFAR10/100, 3.5 for RestrictedImageNet)')
+parser.add_argument('--bs', type=int, default=200,
+                    help='Per-device batch size for evaluation (default: 200)')
 
 hps = parser.parse_args()
 
@@ -82,7 +84,7 @@ if hps.eps is None:
         hps.eps = 3.0
     print(f"Using default epsilon value of {hps.eps} for {dataset}")
 
-bs = 1000 * num_devices
+bs = hps.bs * num_devices
 
 print(f'Testing on {ROBUSTNESS_DATAPOINTS} points from {dataset.upper()} dataset')
 
