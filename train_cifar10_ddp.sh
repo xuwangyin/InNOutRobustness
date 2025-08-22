@@ -17,8 +17,8 @@ mkdir -p "${LOG_DIR}"
 sbatch \
   -N 1 \
   -n 1 \
-  -t 12:00:00 \
-  -p mi2508x \
+  -t 24:00:00 \
+  -p mi2104x \
   -J "${JOB_NAME}" \
   -o "${LOG_FILE}" \
   --wrap="\
