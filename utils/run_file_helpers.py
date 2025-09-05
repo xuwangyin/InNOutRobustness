@@ -168,6 +168,8 @@ def create_optim_scheduler_swa_configs(hps):
             decay_epochs = [25, 40]
         if epochs == 75:
             decay_epochs = [30, 60, 75]
+        elif epochs == 90:
+            decay_epochs = [30, 60]
         elif epochs == 100:
             decay_epochs = [50, 75, 90]
         elif epochs == 110:

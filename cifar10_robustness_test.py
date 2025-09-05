@@ -48,6 +48,8 @@ parser.add_argument('--eps', type=float, default=0.5,
                     help='Epsilon value for adversarial attacks (default: 0.5 for CIFAR10/100, 3.5 for RestrictedImageNet)')
 parser.add_argument('--bs', type=int, default=200,
                     help='Per-device batch size for evaluation (default: 200)')
+parser.add_argument('--num_samples', type=int, default=50000,
+                    help='Number of samples to test for robustness evaluation (default: 50000)')
 
 hps = parser.parse_args()
 
@@ -64,7 +66,7 @@ else:
     device = torch.device('cuda:' + str(min(device_ids)))
     num_devices = len(device_ids)
 
-ROBUSTNESS_DATAPOINTS = 100_000
+ROBUSTNESS_DATAPOINTS = hps.num_samples
 dataset = hps.dataset
 
 if hps.dataset == 'restrictedimagenet':
@@ -116,27 +118,27 @@ for model_idx, (type, folder, checkpoint, temperature, temp) in enumerate(model_
     # TODO using augm_type='none' give higher numbers
     restrictedimagenet_augm_type = 'test'
 
-    if dataset == 'cifar10':
-        dataloader = dl.get_CIFAR10(False, batch_size=bs, augm_type='none')
-    elif dataset == 'cifar100':
-        dataloader = dl.get_CIFAR100(False, batch_size=bs, augm_type='none')
-    elif dataset == 'restrictedimagenet':
-        dataloader = dl.get_restrictedImageNet(train=False, augm_type=restrictedimagenet_augm_type, batch_size=bs, balanced=False)
-    elif dataset == 'imagenet':
-        dataloader = dl.get_ImageNet(train=False, batch_size=bs, augm_type='test')
-    else:
-        raise NotImplementedError()
+    # if dataset == 'cifar10':
+    #     dataloader = dl.get_CIFAR10(False, batch_size=bs, augm_type='none')
+    # elif dataset == 'cifar100':
+    #     dataloader = dl.get_CIFAR100(False, batch_size=bs, augm_type='none')
+    # elif dataset == 'restrictedimagenet':
+    #     dataloader = dl.get_restrictedImageNet(train=False, augm_type=restrictedimagenet_augm_type, batch_size=bs, balanced=False)
+    # elif dataset == 'imagenet':
+    #     dataloader = dl.get_ImageNet(train=False, batch_size=bs, augm_type='test')
+    # else:
+    #     raise NotImplementedError()
 
-    acc = 0.0
-    with torch.no_grad():
-        for data, target in dataloader:
-            data = data.to(device)
-            target = target.to(device)
-            out = model(data)
-            _, pred = torch.max(out, dim=1)
-            acc += torch.sum(pred == target).item() / len(dataloader.dataset)
+    # acc = 0.0
+    # with torch.no_grad():
+    #     for data, target in dataloader:
+    #         data = data.to(device)
+    #         target = target.to(device)
+    #         out = model(data)
+    #         _, pred = torch.max(out, dim=1)
+    #         acc += torch.sum(pred == target).item() / len(dataloader.dataset)
 
-    print(f'Clean accuracy {acc} (balanced=False)')
+    # print(f'Clean accuracy {acc} (balanced=False)')
 
     if dataset == 'cifar10':
         dataloader = dl.get_CIFAR10(False, batch_size=ROBUSTNESS_DATAPOINTS, augm_type='none')

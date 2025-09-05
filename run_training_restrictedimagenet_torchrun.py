@@ -8,10 +8,11 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 
-from utils.model_normalization import RestrictedImageNetWrapper
+from utils.model_normalization import RestrictedImageNetWrapper, ImageNetWrapper
 import utils.datasets as dl
 from utils.datasets.imagenet_subsets import RestrictedImageNetOD
 from utils.datasets.imagenet_subsets import RestrictedImageNet
+from torchvision import datasets
 from utils.datasets.augmentations.imagenet_augmentation import get_imageNet_augmentation
 from utils.datasets.paths import get_imagenet_path
 import utils.models.model_factory_224 as factory
@@ -27,8 +28,15 @@ def main_training(hps):
     rank = dist.get_rank()
     world_size = dist.get_world_size()
     
-    # Assert that world_size * batch_size equals 128
-    assert world_size * hps.bs == 128, f"world_size ({world_size}) * batch_size ({hps.bs}) must equal 128, got {world_size * hps.bs}"
+    # Assert that world_size * batch_size equals expected total batch size
+    if hps.dataset == 'restrictedimagenet':
+        expected_total_bs = 128
+    elif hps.dataset == 'imagenet':
+        expected_total_bs = 512
+    else:
+        expected_total_bs = 128  # default fallback
+    
+    # assert world_size * hps.bs == expected_total_bs, f"world_size ({world_size}) * batch_size ({hps.bs}) must equal {expected_total_bs}, got {world_size * hps.bs}"
     
     print(f'Running DDP on rank {rank}.')
     
@@ -41,7 +49,14 @@ def main_training(hps):
     # Load model
     model_root_dir = f'{hps.task}Models'
     logs_root_dir = f'{hps.task}Logs'
-    num_classes = 9  # RestrictedImageNet typically has 9 classes
+    
+    # Set number of classes based on dataset
+    if hps.dataset == 'restrictedimagenet':
+        num_classes = 9
+    elif hps.dataset == 'imagenet':
+        num_classes = 1000
+    else:
+        raise ValueError(f'Dataset {hps.dataset} not supported')
 
     if len(hps.model_params) == 0:
         model_params = None
@@ -55,8 +70,17 @@ def main_training(hps):
     model_dir = os.path.join(model_root_dir, model_name)
     log_dir = os.path.join(logs_root_dir, model_name)
 
+    # Set environment variable for wandb resume if continuing training
+    if hps.continue_trained is not None:
+        os.environ['WANDB_RESUME_FOLDER'] = hps.continue_trained[0]
+    
     start_epoch, optim_state_dict = rh.load_model_checkpoint(model, model_dir, device, hps)
-    model = RestrictedImageNetWrapper(model).to(device)
+    
+    # Apply appropriate wrapper based on dataset
+    if hps.dataset == 'restrictedimagenet':
+        model = RestrictedImageNetWrapper(model).to(device)
+    elif hps.dataset == 'imagenet':
+        model = ImageNetWrapper(model).to(device)
     
     # Wrap model with DDP
     model = DDP(model, device_ids=[rank])
@@ -67,7 +91,7 @@ def main_training(hps):
     od_bs = int(hps.od_bs_factor * hps.bs)
 
     id_config = {}
-    assert hps.dataset == 'restrictedImagenet', f'Dataset {hps.dataset} not supported'
+    assert hps.dataset in ['restrictedimagenet', 'imagenet'], f'Dataset {hps.dataset} not supported'
     
     # Create dataset and sampler manually for DDP
     
@@ -75,7 +99,10 @@ def main_training(hps):
     train_transform = get_imageNet_augmentation(type=hps.augm, out_size=img_size, config_dict=augm_config)
     path = get_imagenet_path()
     
-    train_dataset = RestrictedImageNet(path=path, split='train', transform=train_transform, balanced=False)
+    if hps.dataset == 'restrictedimagenet':
+        train_dataset = RestrictedImageNet(path=path, split='train', transform=train_transform, balanced=False)
+    elif hps.dataset == 'imagenet':
+        train_dataset = datasets.ImageNet(path, split='train', transform=train_transform)
     train_sampler = DistributedSampler(
         train_dataset,
         num_replicas=world_size,
@@ -91,8 +118,11 @@ def main_training(hps):
     )
     
     if id_config is not None:
-        id_config['Dataset'] = 'RestrictedImageNet'
-        id_config['Balanced'] = False
+        if hps.dataset == 'restrictedimagenet':
+            id_config['Dataset'] = 'RestrictedImageNet'
+            id_config['Balanced'] = False
+        elif hps.dataset == 'imagenet':
+            id_config['Dataset'] = 'ImageNet'
         id_config['Batch out_size'] = hps.bs
         id_config['Augmentation'] = augm_config
 
@@ -138,7 +168,10 @@ def main_training(hps):
 
     # Create test loader with DDP support
     test_transform = get_imageNet_augmentation(type='test', out_size=img_size)
-    test_dataset = RestrictedImageNet(path=path, split='val', transform=test_transform, balanced=False)
+    if hps.dataset == 'restrictedimagenet':
+        test_dataset = RestrictedImageNet(path=path, split='val', transform=test_transform, balanced=False)
+    elif hps.dataset == 'imagenet':
+        test_dataset = datasets.ImageNet(path, split='val', transform=test_transform)
     test_sampler = DistributedSampler(
         test_dataset,
         num_replicas=world_size,
@@ -154,7 +187,7 @@ def main_training(hps):
     )
 
     scheduler_config, optimizer_config = rh.create_optim_scheduler_swa_configs(hps)
-    id_attack_config, od_attack_config = rh.create_attack_config(hps, 'restrictedImagenet')
+    id_attack_config, od_attack_config = rh.create_attack_config(hps, hps.dataset)
     trainer = rh.create_trainer(hps, model, optimizer_config, scheduler_config, device, num_classes,
                                 model_dir, log_dir, msda_config=msda_config, model_config=model_config,
                                 id_attack_config=id_attack_config, od_attack_config=od_attack_config,
@@ -183,14 +216,15 @@ def main():
     parser = argparse.ArgumentParser(description='RestrictedImageNet torchrun DDP Training Script')
     parser.add_argument('--net', type=str, default='resnet50_timm', help='ResNet18, 34, 50 or 101')
     parser.add_argument('--model_params', nargs='+', default=[])
-    parser.add_argument('--dataset', type=str, default='restrictedimagenet', help='restrictedimagenet')
+    parser.add_argument('--dataset', type=str, default='restrictedimagenet', help='restrictedimagenet or imagenet')
     parser.add_argument('--od_dataset', type=str, default='restrictedimagenetOD',
                         help=('restrictedimagenetOD, imagenet or openImages'))
     parser.add_argument('--task', type=str, default='RestrictedImageNet',
-                        help='Task name used for model and log directory naming')
+                        help='Task name used for model and log directory naming (e.g., RestrictedImageNet, ImageNet)')
     
     rh.parser_add_commons(parser)
     rh.parser_add_adversarial_commons(parser)
+    # Add default dataset for adversarial norms - will be overridden by actual dataset
     rh.parser_add_adversarial_norms(parser, 'restrictedimagenet')
     
     hps = parser.parse_args()

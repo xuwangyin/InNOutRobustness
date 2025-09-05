@@ -73,6 +73,8 @@ class TrainType:
         self.sam_optimizer = None
         if self.optimizer_config['optimizer_type'].lower() == 'adam':
             self.optimizer = optim.Adam(self.model.parameters(), lr=self.optimizer_config['lr'], weight_decay=self.optimizer_config['weight_decay'])
+        elif self.optimizer_config['optimizer_type'].lower() == 'adamw':
+            self.optimizer = optim.AdamW(self.model.parameters(), lr=self.optimizer_config['lr'], weight_decay=self.optimizer_config['weight_decay'], betas=(0.9, 0.95))
         elif self.optimizer_config['optimizer_type'].lower()  == 'sgd':
             self.optimizer = optim.SGD(self.model.parameters(), lr=self.optimizer_config['lr'], weight_decay=self.optimizer_config['weight_decay'], momentum=self.optimizer_config['momentum'],
                                         nesterov=self.optimizer_config['nesterov'])

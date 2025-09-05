@@ -18,10 +18,29 @@ class OutputBackend:
         if not self.use_ddp or self.rank == 0:
             import os
             wandb_name = os.getenv('WANDB_NAME', self.model_name)
+            
+            # Check if we're resuming from checkpoint
+            wandb_id = None
+            resume_folder = os.getenv('WANDB_RESUME_FOLDER')
+            if resume_folder is not None:
+                # Try to find existing wandb run ID from the log directory
+                # Remove _temp_ prefix and look in logs
+                log_folder = resume_folder.replace('_temp_', '')
+                checkpoint_log_dir = os.path.join(log_dir, log_folder)
+                wandb_dir = os.path.join(checkpoint_log_dir, 'wandb')
+                if os.path.exists(wandb_dir):
+                    # Find the run directory
+                    for item in os.listdir(wandb_dir):
+                        if item.startswith('run-'):
+                            wandb_id = item.split('-')[-1]
+                            break
+            
             wandb.init(
                 project="InNOutRobustness",
                 name=wandb_name,
-                dir=self.writer_dir
+                dir=self.writer_dir,
+                id=wandb_id,
+                resume="allow" if wandb_id else None
             )
             # Log model final directory as config metadata
             wandb.config.update({"model_final_dir": self.main_dir})
